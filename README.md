@@ -15,10 +15,10 @@ To add a new unit, derive the PY3Unit class and override the two core methods:
 
 ## Installation
 
-1) put `py3status.py` and `py3_default_units.py` in your PYTHONPATH
-2) put `run_py3s.py` in your PATH and configure i3 to run it with `status_command run_py3s.py` in your config
-3) edit `run_py3s.py` to your heart's content to configure the output. Write your own units, or butcher the defaults.
-!4) There should be no need to edit the control loop, however; that's the one piece of work that's done for you.
+- 1) put `py3status.py` and `py3_default_units.py` in your PYTHONPATH
+- 2) put `run_py3s.py` in your PATH and configure i3 to run it with `status_command run_py3s.py` in your config
+- 3) edit `run_py3s.py` to your heart's content to configure the output. Write your own units, or butcher the defaults.
+- !4) There should be no need to edit the control loop, however; that's the one piece of work that's done for you.
 
 ## The Future
 
