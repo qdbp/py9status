@@ -1,3 +1,5 @@
+#! /usr/bin/python
+
 from py3status import PY3Status
 from py3s_default_units import *
 

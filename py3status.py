@@ -4,6 +4,7 @@ from collections import deque
 import concurrent.futures as cfu
 import heapq as hpq
 import json
+from shutil import which
 from sys import stdout, stdin
 import time
 import traceback as trc
@@ -28,14 +29,35 @@ BASE0D = '#81A2BE'
 BASE0E = '#B294BB'
 BASE0F = '#A3685A'
 
+CHUNK_DEFAULTS = {'markup': 'pango',
+                  'border': BASE02,
+                  'separator': 'false',
+                  'separator_block_width': 0}
 
-def chunk_to_json(unit, chunk, padding,
-                  def_pango=True, def_border=True,
-                  def_separator=False, **kwargs):
+
+def chunk_to_json(unit, chunk, padding, **kwargs):
     '''
-    generates a string snippet corresponding to one i3bar element.
+    generates a JSON string snippet corresponding to one i3bar element.
 
-    all kwargs are according to the i3 bar api specification.
+    Args:
+        chunk:
+            either a string, assumed to tbe the `full_text`, or a dict,
+            assuming to have entries conforming to the i3 api.
+        padding:
+            number of spaces to add at the beginning and end of each unit's
+            text
+        kwargs:
+            any valid i3bar input API keyword. Takes precedence over
+            default values.
+
+    Returns:
+        a string containing JSON output expected by the i3bar API for a single
+        bar element.
+
+    Will override defaults with, in decreasing order of precedence,
+        unit.transient_overrides (which will be cleared after)
+        unit.permament_overrides (which, naturally, will not)
+        kwargs ("global" overrides set in the control loop)
     '''
 
     # chunks can return None to signify no output
@@ -43,66 +65,70 @@ def chunk_to_json(unit, chunk, padding,
         return ''
 
     # if a unit just returns text, assume it's the `full_text`:
-    if isinstance(chunk, str):
+    if not isinstance(chunk, dict):
+        assert isinstance(chunk, str)
         chunk = {'full_text': chunk}
 
     # change some defaults:
-    # - use pango
-    if def_pango:
-        chunk.update({'markup': 'pango'})
-    # - add a nice border
-    if def_border:
-        chunk.update({'border': BASE02})
-    # - turn off the separator
-    if not def_separator:
-        chunk.update({'separator': 'false',
-                      'separator_block_width': 0})
+    chunk.update(CHUNK_DEFAULTS)
 
     # if the chunk provides no name, use the unit's name
     if 'name' not in chunk:
         chunk.update({'name': unit.name})
 
-    chunk['full_text'] = padding*' ' + chunk['full_text'] + padding*' '
-    
-    # apply any kwarg overrides
+    # apply any global (kwarg) overrides
     chunk.update(kwargs)
     # apply any unit-set overrides
-    chunk.update(unit.overrides)
-    unit.overrides = {}
+    chunk.update(unit.permanent_overrides)
+    # transient overrides take precedence
+    chunk.update(unit.transient_overrides)
+    unit.transient_overrides = {}
+
+    chunk['full_text'] = ' '*padding + chunk['full_text'] + ' '*padding
 
     return json.dumps(chunk)
 
 
 class PY3Status:
     '''
-    class managing the entire status line output.
+    class managing the control loop.
 
     contains distinct units which each generate one or more output chunks,
     and are polled for output independently according to their `unit.ival`
     value
     '''
 
-    def __init__(self, units, chunk_padding=2, min_sleep=0.33):
+    def __init__(self, units, min_sleep=0.33, padding=1, chunk_kwargs=None):
         '''
         units:
-            list of units to poll. their ordering in the list will
+            list of PY3Unit units to poll. their ordering in the list will
             order their output.
-        chunk_padding:
-            number of spaces to draw at the beginning and end of each
-            unit's chunk
+        padding:
+            number of spaces to add at the beginning and end of each unit's
+            output text
         min_sleep:
-            minimum number of seconds to sleep between unit poll sweeps
+            minimum number of seconds to sleep between unit poll sweeps.
+        format_kwargs:
+            kwargs to pass to `chunk_to_json`, which formats unit output
+            into the format expected by i3. Globally verride `chunk_to_json`
+            defaults with this. Units also have means of doing this on an
+            individual basis. see PY3Unit.
         '''
         self.units = units
         self.units_by_name = {u.name: u for u in units}
 
         self._unit_q = []
         self._click_q = deque()
-        self._exe = cfu.ThreadPoolExecutor(max_workers=4)
+        self._exe = cfu.ThreadPoolExecutor(max_workers=8)
 
         self.unit_outputs = {u.name: u.get_chunk()
                              for u in self.units}
-        self.chunk_padding = chunk_padding
+        if chunk_kwargs is None:
+            self.chunk_kwargs = {}
+        else:
+            assert isinstance(chunk_kwargs, dict)
+            self.chunk_kwargs = chunk_kwargs
+        self.padding = padding
 
         self.min_sleep = min_sleep
 
@@ -110,10 +136,14 @@ class PY3Status:
             hpq.heappush(self._unit_q, (time.time() + u.ival, u))
 
     def write_statusline(self):
+        '''
+        aggregates all units' output into a single string statusline and
+        writes it.
+        '''
         o = []
         for u in self.units:
             chunk_json = chunk_to_json(u, self.unit_outputs[u.name],
-                                       self.chunk_padding)
+                                       self.padding, **self.chunk_kwargs)
             if chunk_json:
                 o.append(chunk_json)
 
@@ -121,6 +151,10 @@ class PY3Status:
         stdout.flush()
 
     def _read_clicks(self):
+        '''
+        "daemon" loop, to run in a separate thread, reading click events
+        provided by i3 to stdin and dispatching them to _exe_unit
+        '''
         # TODO: maybe find a proper json parser, not this DIY hackery
         while True:
             # "burn" the opening [\n or ,\n
@@ -145,6 +179,19 @@ class PY3Status:
                 continue
 
     def _exe_unit(self, unit, clicked=False, click=None):
+        '''
+        execute unit.get_chunk for a unit, updating its most current output
+        in self.unit_outputs.
+
+        if clicked is true (and thus click is provided), unit.handle_click
+        is addicionally called before get_chunk invocation. furthermore,
+        if `clicked`, the statusline is written immediately after get_chunk
+        returns, so that the user can be given immediate feedback.
+
+        if get_chunk raises an uncaught exception, the unit enters a failure
+        state, indicated on the status line.
+        '''
+        # TODO: provide means of unit debugging on fail
         try:
             if clicked:
                 assert click is not None
@@ -163,6 +210,15 @@ class PY3Status:
                 colorify('unit "{}" failed'.format(unit.name), '#FF0000')
 
     def run(self):
+        '''
+        the main control loop.
+
+        units to run next are kept in a priority queue. when a unit is executed
+        its next "to run" time is set to unit.ival + time.time() (NOT unit.ival
+        + previous time, hence units can run noticeably less frequenctly than
+        1/ival if the loop is stressed).
+        '''
+
         # header
         stdout.write('{"version":1,"click_events":true}\n[\n')
         stdout.flush()
@@ -187,24 +243,59 @@ class PY3Status:
 
 
 class PY3Unit:
-    def __init__(self, name=None, ival=1.):
+    '''
+    class producing a single chunk of the status line
+    '''
+    def __init__(self, name=None, ival=1., requires=None):
         '''
-        self.overrides:
-            chunk_to_json will, after each invocation of get_chunk,
-            augment the returned json with these parameters, and clear this
-            dict.
+        Args:
+            name:
+                name of the unit as seen by i3. if None, will be set to
+                the class name. Multiple unnamed instances of the same class
+                lead to problems !!!
+            ival:
+                frequency with which the control loop will try to poll this
+                unit. True frequency will be somewhat less
+                (see `PY3Status.run`)
+            requires:
+                list of binaries which are required for this unit to function.
+                If any of these is absent, the unit's `get_chunk`
+                method will be replaced with a graceful failure message.
+        '''
+        # TODO: fix these problems
+        '''
+        Members:
+            self.transient_overrides:
+                `chunk_to_json` will, after each invocation of get_chunk,
+                augment the returned json with these parameters, and clear this
+                dict.
+            self.permanent_overrides:
+                same as above, but `chunk_to_json` will not clear these.
+                subordinate to transient_overrides.
         '''
         # self.ovr_lock:
         #     `self.overrides` is accessed in a potentially non-thread-safe
-        #     manner from both the `py3s.write_statusline` and the `py3u.handle_click`
+        #     manner from both `py3s.write_statusline` and `py3u.handle_click`
         #     threads. consequently, we acquire the unit's `ovr_lock` before
         #     making changes.
         # '''
         if name is None:
             name = self.__class__.__name__
+
         self.name = name
         self.ival = ival
-        self.overrides = {}
+        self.transient_overrides = {}
+        self.permanent_overrides = {}
+
+        if requires is not None:
+            for req in requires:
+                if which(req) is None:
+                    self.get_chunk =\
+                        lambda: (self.name + ' [' +
+                                 colorify(req + ' not found', BASE08) +
+                                 ']')
+                    break
+
         # TODO: I think the GIL will prevent dict.updates from different
         # threads from exploding, but I'm not sure
         # self.ovr_lock = Lock()
@@ -226,7 +317,7 @@ class PY3Unit:
 
         see i3 documentation and example code for click's members
         '''
-        self.overrides.update({'border': BASE08})
+        self.transient_overrides.update({'border': BASE08})
 
     # comparison functions for heapq not to crash when times are equal
     def __lt__(self, other):

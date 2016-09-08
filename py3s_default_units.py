@@ -9,12 +9,38 @@ from py3status import PY3Unit, colorify,\
 
 
 class PY3Time(PY3Unit):
+    '''
+    outputs the current time
+
+    Requires:
+        date
+    '''
+    def __init__(self, *args, fmt='%H:%M, %a %b %-m, %Y', **kwargs):
+        '''
+        Args:
+            fmt:
+                the format for strftime to print the date in. Defaults
+                to something sensible.
+        '''
+        super().__init__(*args, **kwargs)
+        self.fmt = fmt
+        # we just assume date is there
+
     def get_chunk(self):
         now = dtt.now()
-        return now.strftime('%H:%M, %a %b %-m, %Y')
+        return now.strftime(self.fmt)
 
 
 class PY3NVGPU(PY3Unit):
+    '''
+    monitors a nvidia gpu.
+
+    Requires:
+        nvidia-smi
+    '''
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, requires=['nvidia-smi'], **kwargs)
+
     def get_chunk(self):
         raw = check_output(['nvidia-smi']).decode('ascii')
         line = raw.split('\n')[8]
@@ -40,6 +66,15 @@ class PY3NVGPU(PY3Unit):
 
 
 class PY3CPU(PY3Unit):
+    '''
+    monitors CPU usage and temperature
+
+    Requires:
+        mpstat (sysstat)
+    '''
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, requires=['mpstat'], **kwargs)
+
     def get_chunk(self):
         out = check_output(['mpstat', '1', '1']).decode('ascii')
         l = out.split('\n')[3]
@@ -57,6 +92,12 @@ class PY3CPU(PY3Unit):
 
 
 class PY3Mem(PY3Unit):
+    '''
+    monitor memory usage
+
+    Requires:
+        free
+    '''
     def get_chunk(self):
         out = check_output(['free', '-m']).decode('ascii')
         l = out.split('\n')[1]
@@ -74,8 +115,23 @@ class PY3Mem(PY3Unit):
 
 
 class PY3Net(PY3Unit):
-    def __init__(self, i_f, down_ival=30, smooth=1/5, **kwargs):
-        super().__init__(**kwargs)
+    '''
+    monitor bytes sent and received per unit time on a network interface
+    '''
+    def __init__(self, i_f, *args, down_ival=30, smooth=1/5, **kwargs):
+        '''
+        Args:
+            i_f:
+                the interface name
+            down_ival:
+                if the interface is found to be down,
+                set self.ival to this value to slow down polling
+            smooth:
+                constant a for [a * X_t + (1 - a) * X_tm1] IIR smoothing
+                of the displayed rate
+        '''
+
+        super().__init__(*args, **kwargs)
         self.i_f = i_f
 
         self.rx_file = '/sys/class/net/{}/statistics/rx_bytes'.format(i_f)
