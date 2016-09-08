@@ -121,8 +121,6 @@ class PY3Status:
         self._click_q = deque()
         self._exe = cfu.ThreadPoolExecutor(max_workers=8)
 
-        self.unit_outputs = {u.name: u.get_chunk()
-                             for u in self.units}
         if chunk_kwargs is None:
             self.chunk_kwargs = {}
         else:
@@ -132,7 +130,12 @@ class PY3Status:
 
         self.min_sleep = min_sleep
 
+        self.unit_outputs =\
+            {u.name: colorify('unit "%s" loading' % u.name, BASE0E)
+             for u in self.units}
+
         for u in self.units:
+            self._exe.submit(self._exe_unit, u)
             hpq.heappush(self._unit_q, (time.time() + u.ival, u))
 
     def write_statusline(self):
