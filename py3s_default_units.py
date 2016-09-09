@@ -127,29 +127,38 @@ class PY3Bat(PY3Unit):
     def get_chunk(self):
         out = check_output(['acpi', '-bi']).decode('ascii')
         if out == "": #acpi -bi outputs empty string if no battery
-            return "No battery detected"
-
+            return "no battery detected"
+        
         line1 = out.split('\n')[0]
-        line2 = out.split('\n')[1]
-#        acpi -b makes line2 unnecessary
+        line2 = out.split('\n')[1] #gives design capacity
+        # acpi -b makes line2 unnecessary
         
-        status = findall('Battery 0: (\w*?),', line1)[0]
-        percentage = findall('Battery 0: \w*?, (\d*)%', line1)[0]
-        time = findall('Battery 0: \w*?, \d*%, ([\w:]*)\s', line1)[0]
+        #output
         
-        if status == "Charging":
-            status2 = "CHR"
-            if int(percentage) >100:
-                status2 = "FULL" #need to figure out behaviour here for fully charged
+        #status
+        raw_status = findall('Battery 0: (\w*?),', line1)[0]
+        if raw_status == "Charging":
+            status = "CHR"
+        if raw_status == "Full":
+            status = "FULL" 
         else:
-            status2 = "BAT"
+            status = "BAT"
         
-        # output = status + percentage + time
-        #output = findall('Battery 0: (\w*?), (\d*)%, ([\w:]*)\s', line1)
-        output = "{} {}% {}".format(status2, percentage, time)
+        #percentage
+        raw_percentage = findall('Battery 0: \w*?, (\d*)%', line1)[0]
+        percentage = raw_percentage + "%"
+        
+        #time
+        try:
+            time = findall('Battery 0: \w*?, \d*%, ([\w:]*)\s', line1)[0]
+        except:
+            time = "" #charge is full, no time remaining
+        
+        
+        # output options: status, percentage, time
+        output = "{} {} {}".format(status, percentage, time) 
         
         return output
-
 
 class PY3Net(PY3Unit):
     '''
