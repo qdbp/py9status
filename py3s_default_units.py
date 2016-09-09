@@ -113,6 +113,38 @@ class PY3Mem(PY3Unit):
                '%)]')
         return out
 
+class PY3Bat(PY3Unit):
+    '''
+    outputs battery usage
+
+    Requires:
+        acpi
+    '''
+
+    def get_chunk(self):
+        out = check_output(['acpi', '-bi']).decode('ascii')
+
+        line1 = out.split('\n')[0]
+        line2 = out.split('\n')[1]
+#        acpi -b makes line2 unnecessary
+        
+        status = findall('Battery 0: (\w*?),', line1)[0]
+        percentage = findall('Battery 0: \w*?, (\d*)%', line1)[0]
+        time = findall('Battery 0: \w*?, \d*%, ([\w:]*)\s', line1)[0]
+        
+        if status == "Charging":
+            status2 = "CHR"
+            if int(percentage) >100:
+                status2 = "FULL" #need to figure out behaviour here for fully charged
+        else:
+            status2 = "BAT"
+        
+        # output = status + percentage + time
+        #output = findall('Battery 0: (\w*?), (\d*)%, ([\w:]*)\s', line1)
+        output = "{} {}% {}".format(status2, percentage, time)
+        
+        return output
+
 
 class PY3Net(PY3Unit):
     '''
