@@ -14,6 +14,7 @@ def main():
              PY3Mem(ival=3.),
              PY3CPU(),
              PY3Net('vpn-ca', name='net_vpn'),
+
 #             PY3Bat(ival=5.),
              PY3Time(ival=0.7)
              ]
