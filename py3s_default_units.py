@@ -123,20 +123,31 @@ class PY3Bat(PY3Unit):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, requires=['acpi'], **kwargs)
-
+    
     def get_chunk(self):
         out = check_output(['acpi', '-bi']).decode('ascii')
         if out == "": #acpi -bi outputs empty string if no battery
-            return "no battery detected"
+            return "no battery"
         
         line1 = out.split('\n')[0]
         line2 = out.split('\n')[1] #gives design capacity
         # acpi -b makes line2 unnecessary
         
-        #output
+        
+        path_id = '/sys/class/power_supply/BAT0/uevent' #or subsitute your own
+        with open(path_id, 'r') as f:
+            raw = f.read() 
+
+            raw_status = findall('POWER_SUPPLY_STATUS=(\w*)', raw)[0]
+            raw_energy = findall('POWER_SUPPLY_ENERGY_NOW=(\d*)', raw)[0]
+            raw_full = findall('POWER_SUPPLY_ENERGY_FULL=(\d*)', raw)[0]
+            raw_full_design= findall('POWER_SUPPLY_ENERGY_FULL_DESIGN=(\d*)', raw)[0]
+            raw_capacity= findall('POWER_SUPPLY_CAPACITY=(\d*)', raw)[0]
+        
         
         #status
-        raw_status = findall('Battery 0: (\w*?),', line1)[0]
+        raw_status = findall('POWER_SUPPLY_STATUS=(\w*)', raw)[0]
+        
         if raw_status == "Charging":
             status = "CHR"
         if raw_status == "Full":
@@ -145,12 +156,14 @@ class PY3Bat(PY3Unit):
             status = "BAT"
         
         #percentage
-        raw_percentage = findall('Battery 0: \w*?, (\d*)%', line1)[0]
-        percentage = raw_percentage + "%"
+        raw_percentage = int(raw_energy)/int(raw_full_design)*100
+        percentage = format(raw_percentage, '.2f') + "%"
+        
         
         #time
+        #95% sure i3 pulls from acpi, but how does acpi calculate time?
         try:
-            time = findall('Battery 0: \w*?, \d*%, ([\w:]*)\s', line1)[0]
+           time = findall('Battery 0: \w*?, \d*%, ([\w:]*)\s', line1)[0]
         except:
             time = "" #charge is full, no time remaining
         
