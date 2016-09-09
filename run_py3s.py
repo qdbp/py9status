@@ -15,7 +15,7 @@ def main():
              PY3CPU(),
              PY3Net('vpn-ca', name='net_vpn'),
              PY3Time(ival=0.7),
-#             PY3Bat(ival=0.7)
+#             PY3Bat(ival=5)
              ]
 
     py3s = PY3Status(units)

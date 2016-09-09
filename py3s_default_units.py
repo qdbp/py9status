@@ -121,8 +121,13 @@ class PY3Bat(PY3Unit):
         acpi
     '''
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, requires=['acpi'], **kwargs)
+
     def get_chunk(self):
         out = check_output(['acpi', '-bi']).decode('ascii')
+        if out == "": #acpi -bi outputs empty string if no battery
+            return "No battery detected"
 
         line1 = out.split('\n')[0]
         line2 = out.split('\n')[1]
