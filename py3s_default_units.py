@@ -113,64 +113,88 @@ class PY3Mem(PY3Unit):
                '%)]')
         return out
 
+
 class PY3Bat(PY3Unit):
     '''
-    outputs battery usage
+    outputs battery usage and charging status
 
     Requires:
         acpi
     '''
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, bat_id=0, **kwargs):
+        '''
+        Args:
+            bat_id:
+                numerical id of the battery to monitor. will be the
+                default of 0 in most cases
+        '''
+        self.bat_id = bat_id
+        self.smooth_min_rem = 0
+        self.called = 0
+        self._p = 1/10
+        self._q = 1 - self._p
         super().__init__(*args, requires=['acpi'], **kwargs)
-    
+
     def get_chunk(self):
+        self.called += 1
+        prefix = 'bat '
         out = check_output(['acpi', '-bi']).decode('ascii')
-        if out == "": #acpi -bi outputs empty string if no battery
-            return "no battery"
-        
+        if not out: #acpi -bi outputs empty string if no battery
+            return prefix + '[' + colorify('no battery', BASE08) + ']'
+
         line1 = out.split('\n')[0]
         line2 = out.split('\n')[1] #gives design capacity
         # acpi -b makes line2 unnecessary
-        
-        
-        path_id = '/sys/class/power_supply/BAT0/uevent' #or subsitute your own
+
+
+        path_id = '/sys/class/power_supply/BAT{}/uevent'.format(self.bat_id)
         with open(path_id, 'r') as f:
             raw = f.read() 
-
             raw_status = findall('POWER_SUPPLY_STATUS=(\w*)', raw)[0]
             raw_energy = findall('POWER_SUPPLY_ENERGY_NOW=(\d*)', raw)[0]
             raw_full = findall('POWER_SUPPLY_ENERGY_FULL=(\d*)', raw)[0]
             raw_full_design= findall('POWER_SUPPLY_ENERGY_FULL_DESIGN=(\d*)', raw)[0]
             raw_capacity= findall('POWER_SUPPLY_CAPACITY=(\d*)', raw)[0]
-        
-        
+
+
         #status
         raw_status = findall('POWER_SUPPLY_STATUS=(\w*)', raw)[0]
-        
+
         if raw_status == "Charging":
-            status = "CHR"
-        if raw_status == "Full":
-            status = "FULL" 
+            status = "chr"
+        elif raw_status == "Full":
+            status = "full" 
         else:
-            status = "BAT"
-        
+            status = "dis"
+
         #percentage
         raw_percentage = int(raw_energy)/int(raw_full_design)*100
-        percentage = format(raw_percentage, '.2f') + "%"
-        
-        
+        percentage = "{:3.0f}%".format(raw_percentage)
+
         #time
         #95% sure i3 pulls from acpi, but how does acpi calculate time?
-        try:
-           time = findall('Battery 0: \w*?, \d*%, ([\w:]*)\s', line1)[0]
-        except:
-            time = "" #charge is full, no time remaining
-        
-        
+        if 'will never fully discharge' in line1:
+            rem = 'inf'
+            status = 'bal'
+        elif 'Discharging' in line1:
+            m_rem = int(findall(':([0-9]{2}):', line1)[0])
+            h_rem = int(findall('\s([0-9]{2}):', line1)[0])
+            # do not alarm user with lowball estimates on startup,
+            # give smoother only after it's well-mixed
+            cur_min = m_rem + 60*h_rem
+            self.smooth_min_rem = (self._p * (cur_min) +
+                                   self._q * (self.smooth_min_rem))
+            
+            show_min = (cur_min if self.called < 10
+                                else int(self.smooth_min_rem))
+            rem = '{:02d}:{:02d}'.format(show_min//60, show_min % 60)
+        else:
+            rem = "inf" #charge is full, no time remaining
+
         # output options: status, percentage, time
-        output = "{} {} {}".format(status, percentage, time) 
-        
+        output = prefix + "[{}] [{} rem, {}]".format(percentage, rem, status)
+
         return output
 
 class PY3Net(PY3Unit):
