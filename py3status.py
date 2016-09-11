@@ -114,6 +114,20 @@ class PY3Status:
             defaults with this. Units also have means of doing this on an
             individual basis. see PY3Unit.
         '''
+
+        self.fail = ''
+        names = set()
+        for u in units:
+            if u.name not in names:
+                names.add(u.name)
+                continue
+            self.fail = json.dumps(
+                {'full_text': colorify('GLOBAL FAILURE: duplicate unit name %s'
+                                       % u.name, '#FF0000'),
+                 'markup': 'pango'
+                 })
+            break
+
         self.units = units
         self.units_by_name = {u.name: u for u in units}
 
@@ -233,10 +247,17 @@ class PY3Status:
         stdout.write('{"version":1,"click_events":true}\n[\n')
         stdout.flush()
 
+        if self.fail:
+            stdout.write('[' + self.fail + '],\n')
+            stdout.flush()
+            while True:
+                time.sleep(1e9)
+
         # start input reader
         self._exe.submit(self._read_clicks)
 
         while True:
+
             now = time.time()
             while self._unit_q[0][0] < now:
                 t, u = self._unit_q[0]
