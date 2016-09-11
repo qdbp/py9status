@@ -197,6 +197,7 @@ class PY3Bat(PY3Unit):
 
         return output
 
+
 class PY3Net(PY3Unit):
     '''
     monitor bytes sent and received per unit time on a network interface
@@ -271,3 +272,14 @@ class PY3Net(PY3Unit):
         return (prefix +
                 '[u {:6.1f} {:>3s}] '.format(vals[1], sfs[1]) +
                 '[d {:6.1f} {:>3s}] '.format(vals[0], sfs[0]))
+
+
+class PY3Disk(PY3Unit):
+    def __init__(self, disk, *args, **kwargs):
+        self.disk = disk
+        super().__init__(*args, **kwargs)
+
+    def get_chunk(self):
+        pass
+
+

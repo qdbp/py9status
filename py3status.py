@@ -85,7 +85,7 @@ def chunk_to_json(unit, chunk, padding, **kwargs):
     unit.transient_overrides = {}
 
     chunk['full_text'] = ' '*padding + chunk['full_text'] + ' '*padding
-
+    
     return json.dumps(chunk)
 
 
@@ -131,7 +131,12 @@ class PY3Status:
         self.min_sleep = min_sleep
 
         self.unit_outputs =\
-            {u.name: colorify('unit "%s" loading' % u.name, BASE0E)
+            {u.name: chunk_to_json(u,
+                                   colorify('unit "%s" loading' % u.name,
+                                            BASE0E),
+                                   self.padding,
+                                   **self.chunk_kwargs
+                                   )
              for u in self.units}
 
         for u in self.units:
@@ -145,8 +150,9 @@ class PY3Status:
         '''
         o = []
         for u in self.units:
-            chunk_json = chunk_to_json(u, self.unit_outputs[u.name],
-                                       self.padding, **self.chunk_kwargs)
+            # we don't really care about concurrent modification
+            # no synchrony is expected among unit updates
+            chunk_json = self.unit_outputs[u.name]
             if chunk_json:
                 o.append(chunk_json)
 
@@ -191,8 +197,8 @@ class PY3Status:
         if `clicked`, the statusline is written immediately after get_chunk
         returns, so that the user can be given immediate feedback.
 
-        if get_chunk raises an uncaught exception, the unit enters a failure
-        state, indicated on the status line.
+        if `get_chunk` or `chunk_to_json` raises an uncaught exception,
+        the unit enters a failure state, indicated on the status line.
         '''
         # TODO: provide means of unit debugging on fail
         try:
@@ -200,7 +206,8 @@ class PY3Status:
                 assert click is not None
                 unit.handle_click(click)
             o = unit.get_chunk()
-            self.unit_outputs[unit.name] = o
+            self.unit_outputs[unit.name] =\
+                chunk_to_json(unit, o, self.padding, **self.chunk_kwargs)
             # assume statusline is costly enough to process such that
             # having it rewritten on every unit execution would be costly
             # hence, we aggregate in unit_outputs, then print in a batch
