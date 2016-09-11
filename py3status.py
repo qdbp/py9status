@@ -231,7 +231,10 @@ class PY3Status:
         except Exception:
             trc.print_exc()
             self.unit_outputs[unit.name] =\
-                colorify('unit "{}" failed'.format(unit.name), '#FF0000')
+                chunk_to_json(unit,
+                              colorify('unit "{}" failed'.format(unit.name),
+                                       '#FF0000'),
+                              self.padding, **self.chunk_kwargs)
 
     def run(self):
         '''
