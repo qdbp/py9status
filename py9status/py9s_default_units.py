@@ -296,6 +296,7 @@ class PY9Bat(PY9Unit):
 
         return out
 
+
     def format(self, output):
         e_prefix = 'bat [{}]'
         if output.pop('b_error_no_bat', False):
@@ -339,6 +340,56 @@ class PY9Bat(PY9Unit):
                 .format(braces[0], pct_str, braces[1],
                         rem_string, status_string)
                 )
+
+
+class PY9Wireless(PY9Unit):
+    '''
+    wireless network information
+    SSID, quality
+
+    Requires:
+        iw (probably?)
+        wireless-tools?
+    '''
+
+    def __init__(self, *args, wlan_id='wlp2s0', **kwargs):
+
+        '''
+        Args:
+            wlan_id:
+                wireless device name from ip link
+                example: wlan0
+        '''
+        self.wlan_id=wlan_id
+        super().__init__(*args, requires=['wireless-tools'], **kwargs)
+    def get_chunk(self):
+        #future: read stats from /proc/net/wireless?
+        
+        out = check_output(['iwconfig', self.wlan_id]).decode('ascii') 
+        line1 = out.split('\n')[0]
+        #no device detected case
+        if "No such device" in out: #if not connected "No such device"
+            return "w: down"
+        
+        #not connected case
+        if 'off/any' in out: #if not connected, "ESSID:off/any"
+            return "w: none"
+        
+        #raw output data
+        raw_SSID = findall('ESSID:"(.*?)"', out)[0]
+        raw_quality_num = findall('Link Quality=(\d*)', out)[0]
+        raw_quality_denom = findall('Link Quality=\d*/(\d*)', out)[0]
+
+        #SSID
+        SSID = raw_SSID #maybe do something with SSID later, perhaps display home if connected to home SSID
+        
+        #quality (overall quality of the link)
+        raw_quality = int(raw_quality_num) / int(raw_quality_denom)*100
+        quality = "{:3.0f}%".format(raw_quality)
+        
+        #parameters: SSID, quality
+        output = "w: [{} at {}]".format(quality, SSID)
+        return output # sample output: W: (088% at SSID) 
 
 
 class PY9Net(PY9Unit):

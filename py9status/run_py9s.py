@@ -26,8 +26,9 @@ def main():
         PY9CPU(),
         PY9Net('vpn-ca', name='net_vpn'),
         # uncomment for laptop users
-        # PY9Bat(ival=5.),
-        PY9Time(ival=0.7)
+        # PY3Wireless("wlan0", ival=5.),
+        # PY3Bat(ival=5.),
+        PY3Time(ival=0.7)
     ]
 
     py9s = PY9Status(units)
