@@ -16,7 +16,7 @@ class PY3Time(PY3Unit):
     Requires:
         date
     '''
-    def __init__(self, *args, fmt='%H:%M, %a %b %-m, %Y', **kwargs):
+    def __init__(self, *args, fmt='%a %b %d %Y - %H:%M', **kwargs):
         '''
         Args:
             fmt:
