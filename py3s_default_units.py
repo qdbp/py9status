@@ -279,6 +279,15 @@ class PY3Disk(PY3Unit):
     monitor disk activity
     '''
     def __init__(self, disk, *args, bs=512, **kwargs):
+        '''
+        Args:
+            disk:
+                the disk label as found in `/dev/`, e.g. "sda", etc.
+            bs:
+                the disk block size in bytes, will usually be 512
+        '''
+        self._no_disk_ival = 10
+
         self.disk = disk
         self.bs = bs
         self.stat = '/sys/class/block/{}/stat'.format(self.disk)
@@ -291,11 +300,16 @@ class PY3Disk(PY3Unit):
     def get_chunk(self):
         # TODO: free space, in flight reading, read magnitudes
         context = 'disk [' + self.disk + ' {}]'
-        with open(self.stat, 'r') as f:
-            _, _, r, _, _, _, w, _, ifl, _, _ = [int(x) for x in f.read().split()]
+        try:
+            with open(self.stat, 'r') as f:
+                _, _, r, _, _, _, w, _, ifl, _, _ =\
+                    [int(x) for x in f.read().split()]
+        except FileNotFoundError:
+            self.ival = self._no_disk_ival
+            return context.format(colorify('---', BASE08))
 
-        r_fmt = {'color': BASE00, 'background': BASE06}
-        w_fmt = {'color': BASE00, 'background': BASE06}
+        r_fmt = {'color': BASE00}
+        w_fmt = {'color': BASE00}
 
         if self.last_r is not None:
             dr = r - self.last_r
@@ -311,5 +325,5 @@ class PY3Disk(PY3Unit):
             self.last_w = w
             return context.format(colorify('loading', BASE0E))
 
-        return context.format('{} {}'.format(pangofy('R', **r_fmt),
-                                             pangofy('W', **w_fmt)))
+        return context.format('{}{}'.format(pangofy('R', **r_fmt),
+                                            pangofy('W', **w_fmt)))
