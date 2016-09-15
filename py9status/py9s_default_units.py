@@ -361,7 +361,8 @@ class PY9Wireless(PY9Unit):
                 example: wlan0
         '''
         self.wlan_id=wlan_id
-        super().__init__(*args, requires=['wireless-tools'], **kwargs)
+        super().__init__(*args, requires=['iwconfig'], **kwargs)
+
     def get_chunk(self):
         #future: read stats from /proc/net/wireless?
         
