@@ -3,9 +3,10 @@ from re import findall
 from subprocess import check_output
 import time
 
-from py3status import PY3Unit, colorify,\
+from py3status import PY3Unit, colorify, pangofy,\
     get_load_color, get_mem_color, mk_tcolor_str,\
-    BASE08, BASE0E
+    BASE08, BASE0E, BASE00, BASE06, BASE0C, BASE09,\
+    BASE0D
 
 
 class PY3Time(PY3Unit):
@@ -15,16 +16,15 @@ class PY3Time(PY3Unit):
     Requires:
         date
     '''
-    def __init__(self, *args, fmt='%H:%M, %a %b %-m, %Y', **kwargs):
+    def __init__(self, *args, fmt='%a %b %d %Y - %H:%M', **kwargs):
         '''
         Args:
             fmt:
                 the format for strftime to print the date in. Defaults
                 to something sensible.
         '''
-        super().__init__(*args, **kwargs)
         self.fmt = fmt
-        # we just assume date is there
+        super().__init__(*args, requires=['date'], **kwargs)
 
     def get_chunk(self):
         now = dtt.now()
@@ -197,6 +197,7 @@ class PY3Bat(PY3Unit):
 
         return output
 
+
 class PY3Net(PY3Unit):
     '''
     monitor bytes sent and received per unit time on a network interface
@@ -269,3 +270,58 @@ class PY3Net(PY3Unit):
         return (prefix +
                 '[u {:6.1f} {:>3s}] '.format(vals[1], sfs[1]) +
                 '[d {:6.1f} {:>3s}] '.format(vals[0], sfs[0]))
+
+
+class PY3Disk(PY3Unit):
+    '''
+    monitor disk activity
+    '''
+    def __init__(self, disk, *args, bs=512, **kwargs):
+        '''
+        Args:
+            disk:
+                the disk label as found in `/dev/`, e.g. "sda", etc.
+            bs:
+                the disk block size in bytes, will usually be 512
+        '''
+        self._no_disk_ival = 10
+
+        self.disk = disk
+        self.bs = bs
+        self.stat = '/sys/class/block/{}/stat'.format(self.disk)
+
+        super().__init__(*args, **kwargs)
+
+        self.last_r = None
+        self.lasw_w = None
+
+    def get_chunk(self):
+        # TODO: free space, in flight reading, read magnitudes
+        context = 'disk [' + self.disk + ' {}]'
+        try:
+            with open(self.stat, 'r') as f:
+                _, _, r, _, _, _, w, _, ifl, _, _ =\
+                    [int(x) for x in f.read().split()]
+        except FileNotFoundError:
+            self.ival = self._no_disk_ival
+            return context.format(colorify('---', BASE08))
+
+        r_fmt = {'color': BASE00}
+        w_fmt = {'color': BASE00}
+
+        if self.last_r is not None:
+            dr = r - self.last_r
+            dw = w - self.last_w
+            self.last_r = r
+            self.last_w = w
+            if dr > 0:
+                r_fmt['background'] = BASE0D
+            if dw > 0:
+                w_fmt['background'] = BASE09
+        else:
+            self.last_r = r
+            self.last_w = w
+            return context.format(colorify('loading', BASE0E))
+
+        return context.format('{}{}'.format(pangofy('R', **r_fmt),
+                                            pangofy('W', **w_fmt)))

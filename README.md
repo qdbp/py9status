@@ -3,7 +3,7 @@
 
 A simple alternative to i3status or i3blocks, this program's principle is to have each element of the status line be a python class with a basic interface, polled by a controller class.
 
-The emphasis is on **total user control** and **code transparency**, followed in time with a performance tightening. This application is geared toward those *willing and able to program python* to configure it.
+The emphasis is on **total user control** and **code transparency**, followed in time with a performance tightening. This application is geared toward those *willing and able to program python* to configure it. This is much in the spirit of [XMonad](http://xmonad.org/), except with fewer catamorphisms.
 
 To add a new unit, derive the PY3Unit class and override the two core methods:
 - `get_chunk`
