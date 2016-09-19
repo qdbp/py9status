@@ -202,7 +202,7 @@ class PY3Net(PY3Unit):
     '''
     monitor bytes sent and received per unit time on a network interface
     '''
-    def __init__(self, i_f, *args, down_ival=30, smooth=1/5, **kwargs):
+    def __init__(self, i_f, *args, smooth=1/5, **kwargs):
         '''
         Args:
             i_f:
@@ -222,7 +222,6 @@ class PY3Net(PY3Unit):
         self.tx_file = '/sys/class/net/{}/statistics/tx_bytes'.format(i_f)
         self.operfile = '/sys/class/net/{}/operstate'.format(i_f)
         self.mark = None
-        self.down_ival = down_ival
         self.smooth = smooth
 
     def _get_rx_tx(self):
@@ -237,7 +236,7 @@ class PY3Net(PY3Unit):
         try:
             with open(self.operfile, 'r') as f:
                 if "down" in f.read():
-                    self.ival = self.down_ival
+                    self.mark = None
                     return prefix + colorify('down', BASE08)
         except FileNotFoundError:
             return prefix + colorify('down', BASE08)
