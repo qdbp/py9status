@@ -185,6 +185,18 @@ class PY3Bat(PY3Unit):
             show_min = (cur_min if self.called < 10
                                 else int(self.smooth_min_rem))
             rem = '{:02d}:{:02d}'.format(show_min//60, show_min % 60)
+        elif 'Charging' in line1:
+            m_rem = int(findall(':([0-9]{2}):', line1)[0])
+            h_rem = int(findall('\s([0-9]{2}):', line1)[0])
+            # do not alarm user with lowball estimates on startup,
+            # give smoother only after it's well-mixed
+            cur_min = m_rem + 60*h_rem
+            self.smooth_min_rem = (self._p * (cur_min) +
+                                   self._q * (self.smooth_min_rem))
+            
+            show_min = (cur_min if self.called < 10
+                                else int(self.smooth_min_rem))
+            rem = '{:02d}:{:02d}'.format(show_min//60, show_min % 60)
         else:
             rem = "inf"
 
