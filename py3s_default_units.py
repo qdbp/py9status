@@ -140,44 +140,40 @@ class PY3Bat(PY3Unit):
         self.called += 1
         prefix = 'bat '
         out = check_output(['acpi', '-bi']).decode('ascii')
-        if not out: #acpi -bi outputs empty string if no battery
+        
+        # acpi -bi outputs empty string if no battery
+        if not out: 
             return prefix + '[' + colorify('no battery', BASE08) + ']'
 
         line1 = out.split('\n')[0]
-        line2 = out.split('\n')[1] #gives design capacity
-        # acpi -b makes line2 unnecessary
-
 
         path_id = '/sys/class/power_supply/BAT{}/uevent'.format(self.bat_id)
         with open(path_id, 'r') as f:
             raw = f.read() 
             raw_status = findall('POWER_SUPPLY_STATUS=(\w*)', raw)[0]
             raw_energy = findall('POWER_SUPPLY_ENERGY_NOW=(\d*)', raw)[0]
-            raw_full = findall('POWER_SUPPLY_ENERGY_FULL=(\d*)', raw)[0]
-            raw_full_design= findall('POWER_SUPPLY_ENERGY_FULL_DESIGN=(\d*)', raw)[0]
-            raw_capacity= findall('POWER_SUPPLY_CAPACITY=(\d*)', raw)[0]
+            # raw_full = findall('POWER_SUPPLY_ENERGY_FULL=(\d*)', raw)[0]
+            raw_full_design =\
+                findall('POWER_SUPPLY_ENERGY_FULL_DESIGN=(\d*)', raw)[0]
+            # raw_capacity= findall('POWER_SUPPLY_CAPACITY=(\d*)', raw)[0]
 
-
-        #status
+        # status
         raw_status = findall('POWER_SUPPLY_STATUS=(\w*)', raw)[0]
 
         if raw_status == "Charging":
             status = "chr"
         elif raw_status == "Full":
-            status = "full" 
+            status = "full"
         else:
             status = "dis"
 
-        #percentage
         raw_percentage = int(raw_energy)/int(raw_full_design)*100
         percentage = "{:3.0f}%".format(raw_percentage)
 
-        #time
-        #95% sure i3 pulls from acpi, but how does acpi calculate time?
         if 'will never fully discharge' in line1:
             rem = 'inf'
             status = 'bal'
-        elif 'Discharging' in line1:
+        elif 'Discharging' in line1 or 'Charging' in line1:
             m_rem = int(findall(':([0-9]{2}):', line1)[0])
             h_rem = int(findall('\s([0-9]{2}):', line1)[0])
             # do not alarm user with lowball estimates on startup,
@@ -185,12 +181,12 @@ class PY3Bat(PY3Unit):
             cur_min = m_rem + 60*h_rem
             self.smooth_min_rem = (self._p * (cur_min) +
                                    self._q * (self.smooth_min_rem))
-            
+
             show_min = (cur_min if self.called < 10
                                 else int(self.smooth_min_rem))
             rem = '{:02d}:{:02d}'.format(show_min//60, show_min % 60)
         else:
-            rem = "inf" #charge is full, no time remaining
+            rem = "inf"
 
         # output options: status, percentage, time
         output = prefix + "[{}] [{} rem, {}]".format(percentage, rem, status)
