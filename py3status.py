@@ -35,14 +35,16 @@ CHUNK_DEFAULTS = {'markup': 'pango',
                   'separator_block_width': 0}
 
 
-def chunk_to_json(unit, chunk, padding, **kwargs):
+def process_chunk(unit, chunk, padding, **kwargs):
     '''
     generates a JSON string snippet corresponding to one i3bar element.
 
     Args:
         chunk:
-            either a string, assumed to tbe the `full_text`, or a dict,
-            assuming to have entries conforming to the i3 api.
+    '''
+    # TODO: short_text support
+    '''
+            a string, the `full_text` of the unit's output, or None
         padding:
             number of spaces to add at the beginning and end of each unit's
             text
@@ -64,17 +66,14 @@ def chunk_to_json(unit, chunk, padding, **kwargs):
     if chunk is None:
         return ''
 
-    # if a unit just returns text, assume it's the `full_text`:
-    if not isinstance(chunk, dict):
-        assert isinstance(chunk, str)
-        chunk = {'full_text': chunk}
+    assert isinstance(chunk, str)
+    chunk = {'full_text': chunk}
 
     # change some defaults:
     chunk.update(CHUNK_DEFAULTS)
 
-    # if the chunk provides no name, use the unit's name
-    if 'name' not in chunk:
-        chunk.update({'name': unit.name})
+    # set the name
+    chunk.update({'name': unit.name})
 
     # apply any global (kwarg) overrides
     chunk.update(kwargs)
@@ -82,7 +81,7 @@ def chunk_to_json(unit, chunk, padding, **kwargs):
     chunk.update(unit.permanent_overrides)
     # transient overrides take precedence
     chunk.update(unit.transient_overrides)
-    unit.transient_overrides = {}
+    unit.transient_overrides.clear()
 
     chunk['full_text'] = ' '*padding + chunk['full_text'] + ' '*padding
     
@@ -109,8 +108,8 @@ class PY3Status:
         min_sleep:
             minimum number of seconds to sleep between unit poll sweeps.
         format_kwargs:
-            kwargs to pass to `chunk_to_json`, which formats unit output
-            into the format expected by i3. Globally verride `chunk_to_json`
+            kwargs to pass to `process_chunk`, which formats unit output
+            into the format expected by i3. Globally verride `process_chunk`
             defaults with this. Units also have means of doing this on an
             individual basis. see PY3Unit.
         '''
@@ -145,7 +144,7 @@ class PY3Status:
         self.min_sleep = min_sleep
 
         self.unit_outputs =\
-            {u.name: chunk_to_json(u,
+            {u.name: process_chunk(u,
                                    colorify('unit "%s" loading' % u.name,
                                             BASE0E),
                                    self.padding,
@@ -203,15 +202,15 @@ class PY3Status:
 
     def _exe_unit(self, unit, clicked=False, click=None):
         '''
-        execute unit.get_chunk for a unit, updating its most current output
+        execute unit._get_chunk(), updating its most current output
         in self.unit_outputs.
 
         if clicked is true (and thus click is provided), unit.handle_click
-        is addicionally called before get_chunk invocation. furthermore,
-        if `clicked`, the statusline is written immediately after get_chunk
+        is addicionally called before _get_chunk invocation. furthermore,
+        if `clicked`, the statusline is written immediately after _get_chunk
         returns, so that the user can be given immediate feedback.
 
-        if `get_chunk` or `chunk_to_json` raises an uncaught exception,
+        if `_get_chunk` or `process_chunk` raises an uncaught exception,
         the unit enters a failure state, indicated on the status line.
         '''
         # TODO: provide means of unit debugging on fail
@@ -219,11 +218,11 @@ class PY3Status:
             if clicked:
                 assert click is not None
                 unit.handle_click(click)
-            o = unit.get_chunk()
+            o = unit._get_chunk()
             self.unit_outputs[unit.name] =\
-                chunk_to_json(unit, o, self.padding, **self.chunk_kwargs)
+                process_chunk(unit, o, self.padding, **self.chunk_kwargs)
             # assume statusline is costly enough to process such that
-            # having it rewritten on every unit execution would be costly
+            # having it rewritten on every unit execution would be imprudent
             # hence, we aggregate in unit_outputs, then print in a batch
             # unless the unit has been clicked and needs an immediate update
             if clicked:
@@ -231,7 +230,7 @@ class PY3Status:
         except Exception:
             trc.print_exc()
             self.unit_outputs[unit.name] =\
-                chunk_to_json(unit,
+                process_chunk(unit,
                               colorify('unit "{}" failed'.format(unit.name),
                                        '#FF0000'),
                               self.padding, **self.chunk_kwargs)
@@ -241,9 +240,8 @@ class PY3Status:
         the main control loop.
 
         units to run next are kept in a priority queue. when a unit is executed
-        its next "to run" time is set to unit.ival + time.time() (NOT unit.ival
-        + previous time, hence units can run noticeably less frequenctly than
-        1/ival if the loop is stressed).
+        its next "to run" time is set to `unit.ival + time.time()`
+        (NOT `unit.ival` + previous time).
         '''
 
         # header
@@ -279,7 +277,36 @@ class PY3Status:
 class PY3Unit:
     '''
     class producing a single chunk of the status line
+    
+    each class is, ideally, documented with an Output API, specifying the
+    set of output names which are to be expected and handled by format,
+    as output by `unit.read`, which returns dicts of {name: value}
+    outputs. That `unit.read` actually adheres to this api is not
+    enforced by any code, but should be respected by those wishing to
+    write good units.
+
+    Below is a soft specification for how `unit.read` should behave:
+    
+     - for the convenience of those overriding `format`, the convention
+    that names are prefixed with their type is followed. Common
+    prefixed found in default units are:
+        i_ for integer,
+        f_ for float/double,
+        s_ for string
+        b_ for boolean
+    
+    since these prefixes are purely descriptive, feel free to use them
+    as creatively as you see fit.
+
+    - the API can provide for `b_` error flags when expected output
+    cannot be produced. As a matter of convention, these flags should be
+    checked for first, since other members are not guaranteed to exist
+    in the case of an error.
+
     '''
+
+    api = set('s_info')
+
     def __init__(self, name=None, ival=1., requires=None):
         '''
         Args:
@@ -293,18 +320,18 @@ class PY3Unit:
                 (see `PY3Status.run`)
             requires:
                 list of binaries which are required for this unit to function.
-                If any of these is absent, the unit's `get_chunk`
+                If any of these is absent, the unit's `_get_chunk`
                 method will be replaced with a graceful failure message.
         '''
         # TODO: fix these problems
         '''
         Members:
             self.transient_overrides:
-                `chunk_to_json` will, after each invocation of get_chunk,
+                `process_chunk` will, after each invocation of _get_chunk,
                 augment the returned json with these parameters, and clear this
                 dict.
             self.permanent_overrides:
-                same as above, but `chunk_to_json` will not clear these.
+                same as above, but `process_chunk` will not clear these.
                 subordinate to transient_overrides.
         '''
         # self.ovr_lock:
@@ -324,7 +351,7 @@ class PY3Unit:
         if requires is not None:
             for req in requires:
                 if which(req) is None:
-                    self.get_chunk =\
+                    self._get_chunk =\
                         lambda: (self.name + ' [' +
                                  colorify(req + ' not found', BASE08) +
                                  ']')
@@ -334,16 +361,34 @@ class PY3Unit:
         # threads from exploding, but I'm not sure
         # self.ovr_lock = Lock()
 
-    def get_chunk(self):
+    def _get_chunk(self):
         '''
-        get the unit's output to display on the line. returns str or dict.
+        format the unit's output according to the formatting method given
+
+        returns a string which will be taken to be the `full_text` of the 
+        associated
 
         the return value should either be a string, which will be assumed to
         be the full_text value of the unit's output, and which permits pango
         markup; or a dict, assumed to conform to the i3bar api and which will
         be serialized as given (pango markup will still be enabled).
         '''
-        return 'unimplemented unit output'
+        return self.format(self.read())
+
+    def read(self):
+        '''
+        get the unit's output in dict format, in line with its api
+
+        read returns a dict, rather than setting internal state as could be
+        the case, to avoid concurrency issues.
+        '''
+        return {'s_info': 'dummy unit output'}
+
+    def format(self, read_output):
+        '''
+        format the unit's `read` output
+        '''
+        return '{s_info:}'.format(**read_output)
 
     def handle_click(self, click):
         '''
@@ -378,6 +423,7 @@ def mk_tcolor_str(temp):
     return tcolor_str
 
 
+# TODO: make generic color function
 def get_mem_color(mem_p):
     if mem_p > 90:
         color = BASE08
@@ -387,6 +433,19 @@ def get_mem_color(mem_p):
         color = BASE0A
     else:
         color = BASE0B
+
+    return color
+
+
+def get_bat_color(bat_p):
+    if bat_p > 75:
+        color = BASE0B
+    elif bat_p > 50:
+        color = BASE0A
+    elif bat_p > 25:
+        color = BASE09
+    else:
+        color = BASE08
 
     return color
 
