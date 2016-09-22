@@ -17,7 +17,7 @@ and, optionally,
 
 `format` takes the dict output by `read` and outputs a string, with pango formatting, to be displayed on the statusline. For well written units, the documentation should document read's output, and format should be overwritable without delving into `read`'s inner workings. This method is how output is customized - you're in charge!
 
-`handle_click` takes a dict corresponding to a click event (according to the i3bar JSON API) and returns nothing. This code should a) produce useful side effects independent of the py3status control loop and/or b) modify the unit's state such that the next invocation of `get_chunk` does something usefully different. Really, do whatever.
+`handle_click` takes a dict corresponding to a click event (according to the i3bar JSON API) and returns nothing. This code should a) produce useful side effects independent of the py3status control loop and/or b) modify the unit's state such that the next invocation of `read` or `format` does something usefully different. Really, do whatever.
 
 ### controlling display style
 
