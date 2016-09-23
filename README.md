@@ -13,9 +13,9 @@ To add a new unit, derive the PY3Unit class and override the three core methods:
 and, optionally,
 - `handle_click`
 
-`read` takes no argument and produces either a dict of output values. It is recommended to document this well following the convention in the example units. Output what you please, and these values will be processed by the format method.
+`read` takes no argument and produces a dict of output values. Output what you please, and these values will be processed by the `format` method. It is recommended to document this well following the convention in the example units.
 
-`format` takes the dict output by `read` and outputs a string, with pango formatting, to be displayed on the statusline. For well written units, the documentation should document read's output, and format should be overwritable without delving into `read`'s inner workings. This method is how output is customized - you're in charge!
+`format` takes the dict output by `read` and outputs a string, with pango formatting, to be displayed on the statusline. This method is how output is customized - you're in charge! For well written units, the documentation should document `read`'s output, and `format` should be overwritable without delving into `read`'s inner workings.
 
 `handle_click` takes a dict corresponding to a click event (according to the i3bar JSON API) and returns nothing. This code should a) produce useful side effects independent of the py3status control loop and/or b) modify the unit's state such that the next invocation of `read` or `format` does something usefully different. Really, do whatever.
 
