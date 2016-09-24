@@ -1,7 +1,7 @@
 #! /usr/bin/python
 
-from py3status import PY3Status
-from py3s_default_units import *
+from py3status.py3core import PY3Status
+from py3status.py3s_default_units import *
 
 # you can write your own units! it's recommended to use a separate
 # file, which you then import as:

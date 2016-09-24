@@ -3,7 +3,7 @@ from re import findall
 from subprocess import check_output
 import time
 
-from py3status import PY3Unit, colorify, pangofy,\
+from .py3core import PY3Unit, colorify, pangofy,\
     get_load_color, get_mem_color, mk_tcolor_str, get_bat_color,\
     BASE08, BASE0E, BASE00, BASE06, BASE0C, BASE09, BASE0B,\
     BASE0D
