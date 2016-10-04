@@ -196,6 +196,11 @@ class PY3Bat(PY3Unit):
         self._p = 1/10
         self._q = 1 - self._p
 
+        self._clicked = False
+
+    def handle_click(self, click):
+        self._clicked = not self._clicked
+
     def read(self):
         self.called += 1
         fn_uevent = '/sys/class/power_supply/BAT{}/uevent'.format(self.bat_id)
@@ -247,7 +252,16 @@ class PY3Bat(PY3Unit):
             return 'bat [{}]'.format(colorify('battery {} not found'
                                               .format(self.bat_id), BASE08))
 
-        pct = output['f_chr_pct']
+        # if clicked, show a border; if unclicked, clear it
+        # if self._clicked:
+        #     self.permanent_overrides['border'] = BASE08
+        # elif 'border' in self.permanent_overrides:
+        #     del self.permanent_overrides['border']
+
+        # if self._clicked, show % of design capacity instead
+        # pct = output['f_chr_pct']
+        pct = (output['f_chr_pct'] if not self._clicked
+               else output['f_chr_pct_design'])
         pct_str = colorify('{:3.0f}'.format(pct), get_bat_color(pct))
 
         status_string = 'unk'
@@ -265,8 +279,11 @@ class PY3Bat(PY3Unit):
             rem_string = '{:02d}:{:02d}'.format(m_rem//60, m_rem%60)
         else:
             rem_string = '--:--'
+ 
+        braces = '[]' if not self._clicked else ['&lt;', '&gt;']
+        return ('bat {}{}%{} [{} rem, {}]'
+                .format(braces[0], pct_str, braces[1], rem_string, status_string))
 
-        return 'bat [{}%] [{} rem, {}]'.format(pct_str, rem_string, status_string)
 
 class PY3Net(PY3Unit):
     '''

@@ -334,12 +334,6 @@ class PY3Unit:
                 same as above, but `process_chunk` will not clear these.
                 subordinate to transient_overrides.
         '''
-        # self.ovr_lock:
-        #     `self.overrides` is accessed in a potentially non-thread-safe
-        #     manner from both `py3s.write_statusline` and `py3u.handle_click`
-        #     threads. consequently, we acquire the unit's `ovr_lock` before
-        #     making changes.
-        # '''
         if name is None:
             name = self.__class__.__name__
 
