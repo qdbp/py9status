@@ -344,8 +344,11 @@ class PY9Bat(PY9Unit):
 class PY9Wireless(PY9Unit):
     """Provide wireless network information.
 
-    Outputs:
-        SSID, quality
+    Output API:
+        'status': up, down, none
+        'SSID' 
+        'quality'
+
     Requires:
         wireless-tools
     """
@@ -355,24 +358,29 @@ class PY9Wireless(PY9Unit):
         """
         Args:
             wlan_id:
-                wireless device name from ip link
+                wireless device name from `ip link`
                 example: wlan0
         """
         self.wlan_id=wlan_id
         super().__init__(*args, requires=['iwconfig'], **kwargs)
 
-    def get_chunk(self):
+    def read(self):
         # Future: read stats from /proc/net/wireless?
-
+        # Raw
         out = check_output(['iwconfig', self.wlan_id]).decode('ascii')
         line1 = out.split('\n')[0]
+
+        output = {'status': "up", "SSID": "SSID", "quality": 0}
+
+        # Status
         # No device detected case
         if "No such device" in out: # if not connected: "No such device"
-            return "w: down"
-
+            output['status'] = "down" 
+            return output
         # Not connected case
         if 'off/any' in out: # if not connected: "ESSID:off/any"
-            return "w: none"
+            output['status'] = "none"
+            return output
 
         # Raw output data
         raw_SSID = findall('ESSID:"(.*?)"', out)[0]
@@ -380,17 +388,21 @@ class PY9Wireless(PY9Unit):
         raw_quality_denom = findall('Link Quality=\d*/(\d*)', out)[0]
 
         # SSID
-        SSID = raw_SSID
-        # Maybe do something with SSID later,
-        # Perhaps display 'home' if connected to home SSID
+        output['SSID'] = raw_SSID
 
         # Quality (overall quality of the link)
         raw_quality = int(raw_quality_num) / int(raw_quality_denom)*100
-        quality = "{:3.0f}%".format(raw_quality)
+        output['quality'] = "{:3.0f}%".format(raw_quality) 
 
-        # Parameters: SSID, quality
-        output = "w: [{} at {}]".format(quality, SSID)
-        return output # Sample output:"w: (088% at SSID)"
+        return output
+    
+    def format(self, output):
+        # Parameters: status, SSID, quality
+        if "up" not in output['status']:
+            return ("w: {}".format(output['status']))
+
+        output = "w: [{} at {}]".format(output['quality'], output['SSID'])
+        return output # Sample output:"w: [088% at SSID]"
 
 
 class PY9Net(PY9Unit):
