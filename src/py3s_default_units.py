@@ -5,8 +5,8 @@ import time
 
 from .py3core import PY3Unit, colorify, pangofy,\
     get_load_color, get_mem_color, mk_tcolor_str, get_bat_color,\
-    BASE08, BASE0E, BASE00, BASE06, BASE0C, BASE09, BASE0B,\
-    BASE0D
+    BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,\
+    BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F
 
 
 class PY3Time(PY3Unit):
@@ -376,10 +376,12 @@ class PY3Net(PY3Unit):
         if output.pop('b_if_loading', False):
             return prefix + colorify('loading', BASE0E)
 
-        sfs = ['B/s', 'B/s']
+        sfs = [colorify('B/s', BASE03), colorify('B/s', BASE03)]
         vals = [output['f_Bps_down'], output['f_Bps_up']]
         for ix in range(2):
-            for mag, sf in [(30, 'G/s'), (20, 'M/s'), (10, 'K/s')]:
+            for mag, sf in [(30, colorify('G/s', BASE0E)),
+                            (20, colorify('M/s', BASE07)),
+                            (10, 'K/s')]:
                 if vals[ix] > 1 << mag:
                     vals[ix] /= 1 << mag
                     sfs[ix] = sf
