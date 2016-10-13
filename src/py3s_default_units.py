@@ -193,10 +193,12 @@ class PY3Bat(PY3Unit):
         self.bat_id = bat_id
         self.min_rem_smooth = None
         self.called = 0
-        self._p = 1/10
+        self._p = 1/5
         self._q = 1 - self._p
 
         self._clicked = False
+
+        self._cur_status = None
 
     def handle_click(self, click):
         self._clicked = not self._clicked
@@ -221,12 +223,21 @@ class PY3Bat(PY3Unit):
 
         if raw_status == "Charging":
             out['b_chr'] = True
+            status = 'chr'
         elif raw_status == "Full":
             out['b_full'] = True
+            status = 'ful'
         elif raw_power == 0:
             out['b_bal'] = True
+            status = 'bal'
         else:
             out['b_dis'] = True
+            status = 'dis'
+
+        # reset the smoothing if we detect a status change
+        if status != self._cur_status:
+            self.min_rem_smooth = None
+            self._cur_status = status
 
         out['f_chr_pct'] = 100*raw_energy/max_energy
         out['f_chr_pct_design'] = 100*raw_energy/max_energy_design
