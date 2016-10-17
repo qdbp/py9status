@@ -108,7 +108,9 @@ class PY3CPU(PY3Unit):
         out = check_output(['mpstat', '1', '1']).decode('ascii')
         l = out.split('\n')[3]
 
-        load_p = 100 - float(findall(r'[0-9\.]+', l)[-1])
+        pcts = findall(r'[0-9\.]+', l)
+        # - idle - cpuwait
+        load_p = 100 - float(pcts[-1]) - float(pcts[-7])
 
         with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
             temp = int(f.read())//1000
