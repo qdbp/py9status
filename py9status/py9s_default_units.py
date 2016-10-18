@@ -345,9 +345,9 @@ class PY9Wireless(PY9Unit):
     """Provide wireless network information.
 
     Output API:
-        'status': up, down, none
-        'SSID' 
-        'quality'
+        's_status': up, down, none
+        's_SSID' 
+        'i_quality'
 
     Requires:
         wireless-tools
@@ -370,16 +370,16 @@ class PY9Wireless(PY9Unit):
         out = check_output(['iwconfig', self.wlan_id]).decode('ascii')
         line1 = out.split('\n')[0]
 
-        output = {'status': "up", "SSID": "SSID", "quality": 0}
+        output = {'s_status': "up", "s_SSID": "SSID", "f_quality": 0}
 
         # Status
         # No device detected case
         if "No such device" in out: # if not connected: "No such device"
-            output['status'] = "down" 
+            output['s_status'] = "down" 
             return output
         # Not connected case
         if 'off/any' in out: # if not connected: "ESSID:off/any"
-            output['status'] = "none"
+            output['s_status'] = "none"
             return output
 
         # Raw output data
@@ -388,20 +388,22 @@ class PY9Wireless(PY9Unit):
         raw_quality_denom = findall('Link Quality=\d*/(\d*)', out)[0]
 
         # SSID
-        output['SSID'] = raw_SSID
+        output['s_SSID'] = raw_SSID
 
         # Quality (overall quality of the link)
         raw_quality = int(raw_quality_num) / int(raw_quality_denom)*100
-        output['quality'] = "{:3.0f}%".format(raw_quality) 
+        output['f_quality'] = raw_quality
 
         return output
     
     def format(self, output):
-        # Parameters: status, SSID, quality
-        if "up" not in output['status']:
-            return ("w: {}".format(output['status']))
+        # Down/off case
+        if "up" not in output['s_status']:
+            return ("w: {}".format(output['s_status']))
 
-        output = "w: [{} at {}]".format(output['quality'], output['SSID'])
+        # Parameters: status, SSID, quality
+        quality_string = "{:2.0f}%".format(output['f_quality'])
+        output = "w: [{} at {}]".format(quality_string, output['s_SSID'])
         return output # Sample output:"w: [088% at SSID]"
 
 
