@@ -346,7 +346,7 @@ class PY9Wireless(PY9Unit):
 
     Output API:
         's_status': up, down, none
-        's_SSID' 
+        's_SSID'
         'i_quality'
 
     Requires:
@@ -375,7 +375,7 @@ class PY9Wireless(PY9Unit):
         # Status
         # No device detected case
         if "No such device" in out: # if not connected: "No such device"
-            output['s_status'] = "down" 
+            output['s_status'] = "down"
             return output
         # Not connected case
         if 'off/any' in out: # if not connected: "ESSID:off/any"
@@ -402,7 +402,16 @@ class PY9Wireless(PY9Unit):
             return ("w: {}".format(output['s_status']))
 
         # Parameters: status, SSID, quality
-        quality_string = "{:2.0f}%".format(output['f_quality'])
+
+        if output['f_quality'] > 80:
+            quality_string = colorify("{:2.0f}%".format(output['f_quality']),
+                    BASE0B)
+        elif output['f_quality'] > 50:
+            quality_string = colorify("{:2.0f}%".format(output['f_quality']),
+                    BASE0A)
+        else:
+            quality_string = colorify("{:2.0f}%".format(output['f_quality']),
+                    BASE08)
         output = "w: [{} at {}]".format(quality_string, output['s_SSID'])
         return output # Sample output:"w: [088% at SSID]"
 
@@ -574,5 +583,4 @@ class PY9Disk(PY9Unit):
         if output['b_write']:
             w_fmt['background'] = BASE09
 
-        return context.format('{}{}'.format(pangofy('R', **r_fmt),
-                                            pangofy('W', **w_fmt)))
+        return context.format('{}{}'.format(pangofy('R', **r_fmt), pangofy('W', **w_fmt)))
