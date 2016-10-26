@@ -6,6 +6,7 @@ import time
 
 from .py9core import PY9Unit, colorify, pangofy,\
     get_load_color, get_mem_color, mk_tcolor_str, get_bat_color,\
+    get_color,\
     BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,\
     BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F
 
@@ -402,17 +403,9 @@ class PY9Wireless(PY9Unit):
             return ("w: {}".format(output['s_status']))
 
         # Parameters: status, SSID, quality
-
-        if output['f_quality'] > 80:
-            quality_string = colorify("{:2.0f}%".format(output['f_quality']),
-                    BASE0B)
-        elif output['f_quality'] > 50:
-            quality_string = colorify("{:2.0f}%".format(output['f_quality']),
-                    BASE0A)
-        else:
-            quality_string = colorify("{:2.0f}%".format(output['f_quality']),
-                    BASE08)
-        output = "w: [{} at {}]".format(quality_string, output['s_SSID'])
+        quality_string = colorify("{:2.0f}".format(output['f_quality']),
+                get_color(output['f_quality'], [30, 50, 80]))
+        output = "w: [{}% at {}]".format(quality_string, output['s_SSID'])
         return output # Sample output:"w: [088% at SSID]"
 
 
