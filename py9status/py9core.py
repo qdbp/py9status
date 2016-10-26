@@ -456,6 +456,23 @@ def get_load_color(load_p):
 
     return color
 
+def get_color(i, midpoints):
+    """Chooses appropriate conditional-color for colorify function
+
+    Takes an integer and a list of midpoints (3).
+    Compares the value of the integer to those midpoints and selects
+    the correct one.
+    """
+
+    sorted(midpoints)
+    # colors: red-orange, orange, yellow, green
+    colors = (BASE08, BASE09, BASE0A, BASE0B)
+    counter = 0
+    for item in midpoints:
+        if i > item:
+            counter += 1
+    return colors[counter]
+
 
 def pangofy(s, **kwargs):
     '''
