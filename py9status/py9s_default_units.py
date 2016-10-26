@@ -405,8 +405,8 @@ class PY9Wireless(PY9Unit):
         # Parameters: status, SSID, quality
         quality_string = colorify("{:2.0f}".format(output['f_quality']),
                 get_color(output['f_quality'], [30, 50, 80]))
-        output = "w: [{}% at {}]".format(quality_string, output['s_SSID'])
-        return output # Sample output:"w: [088% at SSID]"
+        output = "w [{}%] [{}]".format(quality_string, output['s_SSID'])
+        return output # Sample output:"w [88%] [SSID]"
 
 
 class PY9Net(PY9Unit):
