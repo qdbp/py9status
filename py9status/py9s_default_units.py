@@ -348,7 +348,7 @@ class PY9Wireless(PY9Unit):
     Output API:
         's_status': up, down, none
         's_SSID'
-        'i_quality'
+        'f_quality'
 
     Requires:
         wireless-tools
@@ -362,14 +362,14 @@ class PY9Wireless(PY9Unit):
                 wireless device name from `ip link`
                 example: wlan0
         """
-        self.wlan_id=wlan_id
+        self.wlan_id = wlan_id
         super().__init__(*args, requires=['iwconfig'], **kwargs)
 
     def read(self):
         # Future: read stats from /proc/net/wireless?
         # Raw
         out = check_output(['iwconfig', self.wlan_id]).decode('ascii')
-        line1 = out.split('\n')[0]
+        #line1 = out.split('\n')[0]
 
         output = {'s_status': "up", "s_SSID": "SSID", "f_quality": 0}
 
@@ -396,15 +396,15 @@ class PY9Wireless(PY9Unit):
         output['f_quality'] = raw_quality
 
         return output
-    
+
     def format(self, output):
         # Down/off case
         if "up" not in output['s_status']:
-            return ("w: {}".format(output['s_status']))
+            return "w: {}".format(output['s_status'])
 
         # Parameters: status, SSID, quality
         quality_string = colorify("{:2.0f}".format(output['f_quality']),
-                get_color(output['f_quality'], [30, 50, 80]))
+                                  get_color(output['f_quality'], [30, 50, 80]))
         output = "w [{}%] [{}]".format(quality_string, output['s_SSID'])
         return output # Sample output:"w [88%] [SSID]"
 

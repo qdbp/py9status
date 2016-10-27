@@ -469,7 +469,7 @@ def get_color(i, midpoints):
     colors = (BASE08, BASE09, BASE0A, BASE0B)
     counter = 0
     for item in midpoints:
-        if i > item:
+        if i >= item:
             counter += 1
     return colors[counter]
 
