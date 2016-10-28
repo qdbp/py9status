@@ -19,6 +19,7 @@ class PY3Time(PY3Unit):
     Output API:
         's_datestr': date string formatted according to `fmt`
     '''
+    # TODO: turn apis into a class member Enum
 
     def __init__(self, *args, fmt='%a %b %d %Y - %H:%M', **kwargs):
         '''
@@ -182,6 +183,8 @@ class PY3Bat(PY3Unit):
     Error API:
         'b_error_no_bat': True if the battery with the given ID can't be found,
             or more precisely, if the uevent file cannot be read found
+        'b_error_unknown_format': True if the battery's uevent could be read
+            but had an unrecognized format.
     '''
     # TODO: add more; e.g. full/design full, etc.
 
@@ -206,6 +209,36 @@ class PY3Bat(PY3Unit):
     def handle_click(self, click):
         self._clicked = not self._clicked
 
+    def _get_power_metrics(self, raw):
+        gauges = ['ENERGY', 'CHARGE']
+        for gauge in gauges:
+            # fill is charge if charge is read, else it is energy
+            # TODO: consider refactoring to output units power only
+            # the barrier to that is that max_energy_d is not obvious
+            # in the voltage/current case
+            # (is it CHARGE_FULL_D * VOLTAGE_MIN_D ?)
+            try:
+                cur_fill = int(findall(r'POWER_SUPPLY_{}_NOW=(\d+)'
+                                       .format(gauge), raw)[0])
+                max_fill = int(findall(r'POWER_SUPPLY_{}_FULL=(\d+)'
+                                       .format(gauge), raw)[0])
+                max_fill_design =\
+                    int(findall(r'POWER_SUPPLY_{}_FULL_DESIGN=(\d+)'
+                                .format(gauge), raw)[0])
+                break
+            except IndexError:
+                continue
+        else:
+            raise ValueError()
+        # drain is in "fill units"; i.e. "power" if energy is read directly
+        # or "current" if charge/voltage is read
+        try:
+            drain = int(findall(r'POWER_SUPPLY_POWER_NOW=(\d+)', raw)[0])
+        except IndexError:
+            drain = int(findall(r'POWER_SUPPLY_CURRENT_NOW=(\d+)', raw)[0])
+
+        return cur_fill, max_fill, max_fill_design, drain
+
     def read(self):
         self.called += 1
         fn_uevent = '/sys/class/power_supply/BAT{}/uevent'.format(self.bat_id)
@@ -216,11 +249,11 @@ class PY3Bat(PY3Unit):
             return {'b_error_no_bat': True}
 
         raw_status = findall(r'POWER_SUPPLY_STATUS=(\w+)', raw)[0]
-        raw_energy = int(findall(r'POWER_SUPPLY_ENERGY_NOW=(\d+)', raw)[0])
-        raw_power = int(findall(r'POWER_SUPPLY_POWER_NOW=(\d+)', raw)[0])
-        max_energy = int(findall(r'POWER_SUPPLY_ENERGY_FULL=(\d+)', raw)[0])
-        max_energy_design =\
-            int(findall(r'POWER_SUPPLY_ENERGY_FULL_DESIGN=(\d+)', raw)[0])
+        try:
+            cur_fill, max_fill, max_fill_d, drain =\
+                self._get_power_metrics(raw)
+        except ValueError:
+            return {'b_error_unkown_format': True}
 
         out = {'b_chr': False, 'b_dis': False, 'b_bal': False, 'b_full': False}
 
@@ -230,7 +263,7 @@ class PY3Bat(PY3Unit):
         elif raw_status == "Full":
             out['b_full'] = True
             status = 'ful'
-        elif raw_power == 0:
+        elif drain == 0:
             out['b_bal'] = True
             status = 'bal'
         else:
@@ -242,15 +275,15 @@ class PY3Bat(PY3Unit):
             self.min_rem_smooth = None
             self._cur_status = status
 
-        out['f_chr_pct'] = 100 * raw_energy / max_energy
-        out['f_chr_pct_design'] = 100 * raw_energy / max_energy_design
+        out['f_chr_pct'] = 100 * cur_fill / max_fill
+        out['f_chr_pct_design'] = 100 * cur_fill / max_fill_d
 
         if out['b_chr']:
-            m_rem = 60 * (max_energy - raw_energy) / raw_power
+            m_rem = 60 * (max_fill - cur_fill) / drain
         elif out['b_dis']:
-            m_rem = int(60 * raw_energy / raw_power)
+            m_rem = int(60 * cur_fill / drain)
         else:
-            m_rem = -1
+            m_rem = -1  # distinct from None
 
         out['i_min_rem'] = m_rem
         if self.min_rem_smooth is None:
@@ -263,9 +296,14 @@ class PY3Bat(PY3Unit):
         return out
 
     def format(self, output):
+        e_prefix = 'bat [{}]'
         if output.pop('b_error_no_bat', False):
-            return 'bat [{}]'.format(colorify('battery {} not found'
-                                              .format(self.bat_id), BASE08))
+            return e_prefix.format(
+                colorify('battery {} not found'.format(self.bat_id), BASE08))
+        elif output.pop('b_error_unknown_format', False):
+            return e_prefix.format(
+                colorify('battery {} readout in unknown format'
+                         .format(self.bat_id), BASE08))
 
         # if clicked, show a border; if unclicked, clear it
         # if self._clicked:
