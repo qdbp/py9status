@@ -20,15 +20,15 @@ def main():
     #       defaults to the class name
     # !!! avoid name conflicts !!!
     units = [
-             # uncomment if you have an nvidia GPU
-             # PY3NVGPU(ival=5.),
-             PY3Mem(ival=3.),
-             PY3CPU(),
-             PY3Net('vpn-ca', name='net_vpn'),
-             # uncomment for laptop users
-             # PY3Bat(ival=5.),
-             PY3Time(ival=0.7)
-             ]
+        # uncomment if you have an nvidia GPU
+        # PY3NVGPU(ival=5.),
+        PY3Mem(ival=3.),
+        PY3CPU(),
+        PY3Net('vpn-ca', name='net_vpn'),
+        # uncomment for laptop users
+        # PY3Bat(ival=5.),
+        PY3Time(ival=0.7)
+    ]
 
     py3s = PY3Status(units)
     py3s.run()

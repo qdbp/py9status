@@ -83,8 +83,8 @@ def process_chunk(unit, chunk, padding, **kwargs):
     chunk.update(unit.transient_overrides)
     unit.transient_overrides.clear()
 
-    chunk['full_text'] = ' '*padding + chunk['full_text'] + ' '*padding
-    
+    chunk['full_text'] = ' ' * padding + chunk['full_text'] + ' ' * padding
+
     return json.dumps(chunk)
 
 
@@ -277,7 +277,7 @@ class PY3Status:
 class PY3Unit:
     '''
     class producing a single chunk of the status line
-    
+
     each class is, ideally, documented with an Output API, specifying the
     set of output names which are to be expected and handled by format,
     as output by `unit.read`, which returns dicts of {name: value}
@@ -286,7 +286,7 @@ class PY3Unit:
     write good units.
 
     Below is a soft specification for how `unit.read` should behave:
-    
+
      - for the convenience of those overriding `format`, the convention
     that names are prefixed with their type is followed. Common
     prefixed found in default units are:
@@ -294,7 +294,7 @@ class PY3Unit:
         f_ for float/double,
         s_ for string
         b_ for boolean
-    
+
     since these prefixes are purely descriptive, feel free to use them
     as creatively as you see fit.
 
@@ -359,7 +359,7 @@ class PY3Unit:
         '''
         format the unit's output according to the formatting method given
 
-        returns a string which will be taken to be the `full_text` of the 
+        returns a string which will be taken to be the `full_text` of the
         associated
 
         the return value should either be a string, which will be assumed to

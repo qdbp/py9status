@@ -62,7 +62,7 @@ class PY3NVGPU(PY3Unit):
         temp_C = int(findall('(?<= )[0-9]{2,3}(?=C )', line)[0])
         mem_mib = int(findall('[0-9]+(?=MiB /)', line)[0])
         mem_tot = int(findall('[0-9]{2,}(?=MiB \|)', line)[0])
-        mem_pct = int(100*mem_mib/mem_tot)
+        mem_pct = int(100 * mem_mib / mem_tot)
         load_pct = int(findall('[0-9]+(?=% +Def)', line)[0])
 
         return {'i_mem_mib': mem_mib,
@@ -111,7 +111,7 @@ class PY3CPU(PY3Unit):
         load_p = 100 - float(findall(r'[0-9\.]+', l)[-1])
 
         with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
-            temp = int(f.read())//1000
+            temp = int(f.read()) // 1000
 
         return {'i_load_pct': load_p,
                 'i_temp_C': temp}
@@ -144,8 +144,8 @@ class PY3Mem(PY3Unit):
         l = out.split('\n')[1]
         entries = findall(r'[0-9\.]+', l)
 
-        tot, used = int(entries[0])/(1 << 10), int(entries[1])/(1 << 10)
-        p_used = 100*used/tot
+        tot, used = int(entries[0]) / (1 << 10), int(entries[1]) / (1 << 10)
+        p_used = 100 * used / tot
 
         return {'f_used_G': used,
                 'i_used_pct': p_used}
@@ -173,11 +173,12 @@ class PY3Bat(PY3Unit):
         'b_bal': True if balanced, not full (plugged in, no net inflow)
         'b_full': True if full
         'i_min_rem': minutes until (dis)charged, -1 if infinite
-        'f_chr_pct': percentage charge of battery with respect to current full capacity
+        'f_chr_pct': percentage charge of battery with respect to current full
+         capacity
         'f_chr_pct_design': with respect to design capacity
 
     Error API:
-        'b_error_no_bat': True if the battery with the given ID cannot be found,
+        'b_error_no_bat': True if the battery with the given ID can't be found,
             or more precisely, if the uevent file cannot be read found
     '''
     # TODO: add more; e.g. full/design full, etc.
@@ -193,7 +194,7 @@ class PY3Bat(PY3Unit):
         self.bat_id = bat_id
         self.min_rem_smooth = None
         self.called = 0
-        self._p = 1/5
+        self._p = 1 / 5
         self._q = 1 - self._p
 
         self._clicked = False
@@ -239,13 +240,13 @@ class PY3Bat(PY3Unit):
             self.min_rem_smooth = None
             self._cur_status = status
 
-        out['f_chr_pct'] = 100*raw_energy/max_energy
-        out['f_chr_pct_design'] = 100*raw_energy/max_energy_design
+        out['f_chr_pct'] = 100 * raw_energy / max_energy
+        out['f_chr_pct_design'] = 100 * raw_energy / max_energy_design
 
         if out['b_chr']:
-            m_rem = 60*(max_energy - raw_energy)/raw_power
+            m_rem = 60 * (max_energy - raw_energy) / raw_power
         elif out['b_dis']:
-            m_rem = int(60*raw_energy/raw_power)
+            m_rem = int(60 * raw_energy / raw_power)
         else:
             m_rem = -1
 
@@ -253,7 +254,8 @@ class PY3Bat(PY3Unit):
         if self.min_rem_smooth is None:
             self.min_rem_smooth = m_rem
         else:
-            self.min_rem_smooth = self._p * m_rem + self._q * self.min_rem_smooth
+            self.min_rem_smooth =\
+                self._p * m_rem + self._q * self.min_rem_smooth
         out['i_min_rem_smooth'] = int(self.min_rem_smooth)
 
         return out
@@ -287,13 +289,15 @@ class PY3Bat(PY3Unit):
 
         m_rem = output['i_min_rem_smooth']
         if m_rem > 0:
-            rem_string = '{:02d}:{:02d}'.format(m_rem//60, m_rem%60)
+            rem_string = '{:02d}:{:02d}'.format(m_rem // 60, m_rem % 60)
         else:
             rem_string = '--:--'
- 
+
         braces = '[]' if not self._clicked else ['&lt;', '&gt;']
         return ('bat {}{}%{} [{} rem, {}]'
-                .format(braces[0], pct_str, braces[1], rem_string, status_string))
+                .format(braces[0], pct_str, braces[1],
+                        rem_string, status_string)
+                )
 
 
 class PY3Net(PY3Unit):
@@ -310,7 +314,8 @@ class PY3Net(PY3Unit):
         'b_if_error': true if the interface statistics cannot be read
             for whatever reason
     '''
-    def __init__(self, i_f, *args, smooth=1/5, **kwargs):
+
+    def __init__(self, i_f, *args, smooth=1 / 5, **kwargs):
         '''
         Args:
             i_f:
@@ -354,10 +359,10 @@ class PY3Net(PY3Unit):
             rx, tx = self._get_rx_tx()
 
             now = time.time()
-            rxr = self.smooth*(rx - self.old_rx)/(now - self.mark) +\
-                (1-self.smooth)*self.old_rxr
-            txr = self.smooth*(tx - self.old_tx)/(now - self.mark) +\
-                (1-self.smooth)*self.old_txr
+            rxr = self.smooth * (rx - self.old_rx) / (now - self.mark) +\
+                (1 - self.smooth) * self.old_rxr
+            txr = self.smooth * (tx - self.old_tx) / (now - self.mark) +\
+                (1 - self.smooth) * self.old_txr
 
             self.old_rx, self.old_tx = rx, tx
             self.old_rxr, self.old_txr = rxr, txr
@@ -405,6 +410,7 @@ class PY3Disk(PY3Unit):
             (it probably does not exist)
         'b_disk_loading': disk information is loading
     '''
+
     def __init__(self, disk, *args, bs=512, **kwargs):
         '''
         Args:
@@ -429,7 +435,7 @@ class PY3Disk(PY3Unit):
                 _, _, r, _, _, _, w, _, ifl, _, _ =\
                     [int(x) for x in f.read().split()]
         except FileNotFoundError:
-            return 
+            return
 
         out = {'b_read': False, 'b_write': False}
 
