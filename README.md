@@ -1,9 +1,9 @@
 # py9status
 ## an i3bar status line in python 3.
 
-A minimalistic alternative to i3status, i3blocks or py3status. Each element of the status line be a python class with a basic interface, polled by a controller class. Configuration is done by editing the entry point python code directly (and intuitively). This is much in the spirit of [XMonad](http://xmonad.org/), except with fewer catamorphisms.
+A minimalistic alternative to i3status, i3blocks or py3status. Each element of the status line is a Python class with a basic interface, polled by a controller class. Configuration is done by editing the entry point python code directly (and intuitively). This is much in the spirit of [XMonad](http://xmonad.org/), except with fewer catamorphisms.
 
-The emphasis is on **total user control** and **code transparency**, followed in time with a performance tightening. This application is geared toward those *willing and able to program python* to configure it.
+The emphasis is on **total user control** and **code transparency**. This application is geared toward those *willing and able to program python* to configure it.
 
 ### configuring dispay style
 
