@@ -367,7 +367,7 @@ class PY9Wireless(PY9Unit):
         # Future: read stats from /proc/net/wireless?
         # Raw
         out = check_output(['iwconfig', self.wlan_id]).decode('ascii')
-        #line1 = out.split('\n')[0]
+        # line1 = out.split('\n')[0]
 
         output = {'s_status': "up", "s_SSID": "SSID", "f_quality": 0}
 
@@ -402,7 +402,7 @@ class PY9Wireless(PY9Unit):
 
         # Parameters: status, SSID, quality
         quality_string = colorify("{:2.0f}".format(output['f_quality']),
-                                  get_color(output['f_quality'], [30, 50, 80]))
+                                  get_color(output['f_quality']))
         output = "w [{}%] [{}]".format(quality_string, output['s_SSID'])
         return output  # Sample output:"w [88%] [SSID]"
 
