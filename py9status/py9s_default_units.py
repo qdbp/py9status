@@ -297,7 +297,6 @@ class PY9Bat(PY9Unit):
 
         return out
 
-
     def format(self, output):
         e_prefix = 'bat [{}]'
         if output.pop('b_error_no_bat', False):
@@ -355,7 +354,6 @@ class PY9Wireless(PY9Unit):
     """
 
     def __init__(self, wlan_id, *args, **kwargs):
-
         """
         Args:
             wlan_id:
@@ -375,11 +373,11 @@ class PY9Wireless(PY9Unit):
 
         # Status
         # No device detected case
-        if "No such device" in out: # if not connected: "No such device"
+        if "No such device" in out:  # if not connected: "No such device"
             output['s_status'] = "down"
             return output
         # Not connected case
-        if 'off/any' in out: # if not connected: "ESSID:off/any"
+        if 'off/any' in out:  # if not connected: "ESSID:off/any"
             output['s_status'] = "none"
             return output
 
@@ -392,7 +390,7 @@ class PY9Wireless(PY9Unit):
         output['s_SSID'] = raw_SSID
 
         # Quality (overall quality of the link)
-        raw_quality = int(raw_quality_num) / int(raw_quality_denom)*100
+        raw_quality = int(raw_quality_num) / int(raw_quality_denom) * 100
         output['f_quality'] = raw_quality
 
         return output
@@ -406,7 +404,7 @@ class PY9Wireless(PY9Unit):
         quality_string = colorify("{:2.0f}".format(output['f_quality']),
                                   get_color(output['f_quality'], [30, 50, 80]))
         output = "w [{}%] [{}]".format(quality_string, output['s_SSID'])
-        return output # Sample output:"w [88%] [SSID]"
+        return output  # Sample output:"w [88%] [SSID]"
 
 
 class PY9Net(PY9Unit):
@@ -576,4 +574,5 @@ class PY9Disk(PY9Unit):
         if output['b_write']:
             w_fmt['background'] = BASE09
 
-        return context.format('{}{}'.format(pangofy('R', **r_fmt), pangofy('W', **w_fmt)))
+        return context.format('{}{}'.format(pangofy('R', **r_fmt),
+                                            pangofy('W', **w_fmt)))
