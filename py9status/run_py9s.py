@@ -1,7 +1,7 @@
 #! /usr/bin/python
 
-from py3status.py3core import PY3Status
-from py3status.py3s_default_units import *
+from py9status.py9core import PY9Status
+from py9status.py9s_default_units import *
 
 # you can write your own units! it's recommended to use a separate
 # file, which you then import as:
@@ -21,17 +21,17 @@ def main():
     # !!! avoid name conflicts !!!
     units = [
         # uncomment if you have an nvidia GPU
-        # PY3NVGPU(ival=5.),
-        PY3Mem(ival=3.),
-        PY3CPU(),
-        PY3Net('vpn-ca', name='net_vpn'),
+        # PY9NVGPU(ival=5.),
+        PY9Mem(ival=3.),
+        PY9CPU(),
+        PY9Net('vpn-ca', name='net_vpn'),
         # uncomment for laptop users
-        # PY3Bat(ival=5.),
-        PY3Time(ival=0.7)
+        # PY9Bat(ival=5.),
+        PY9Time(ival=0.7)
     ]
 
-    py3s = PY3Status(units)
-    py3s.run()
+    py9s = PY9Status(units)
+    py9s.run()
 
 if __name__ == '__main__':
     main()

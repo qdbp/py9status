@@ -3,13 +3,13 @@ from re import findall
 from subprocess import check_output
 import time
 
-from .py3core import PY3Unit, colorify, pangofy,\
+from .py9core import PY9Unit, colorify, pangofy,\
     get_load_color, get_mem_color, mk_tcolor_str, get_bat_color,\
     BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,\
     BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F
 
 
-class PY3Time(PY3Unit):
+class PY9Time(PY9Unit):
     '''
     outputs the current time
 
@@ -39,7 +39,7 @@ class PY3Time(PY3Unit):
         return output['s_datestr']
 
 
-class PY3NVGPU(PY3Unit):
+class PY9NVGPU(PY9Unit):
     '''
     monitors a nvidia gpu.
 
@@ -89,7 +89,7 @@ class PY3NVGPU(PY3Unit):
 
 
 # TODO: error handling
-class PY3CPU(PY3Unit):
+class PY9CPU(PY9Unit):
     '''
     monitors CPU usage and temperature
 
@@ -130,7 +130,7 @@ class PY3CPU(PY3Unit):
                 '%] [temp ' + tcolor_str + 'C]')
 
 
-class PY3Mem(PY3Unit):
+class PY9Mem(PY9Unit):
     '''
     monitor memory usage
 
@@ -166,7 +166,7 @@ class PY3Mem(PY3Unit):
                 '%)]')
 
 
-class PY3Bat(PY3Unit):
+class PY9Bat(PY9Unit):
     '''
     outputs battery usage and charging status
 
@@ -340,7 +340,7 @@ class PY3Bat(PY3Unit):
                 )
 
 
-class PY3Net(PY3Unit):
+class PY9Net(PY9Unit):
     '''
     monitor bytes sent and received per unit time on a network interface
 
@@ -437,7 +437,7 @@ class PY3Net(PY3Unit):
                 '[d {:6.1f} {:>3s}] '.format(vals[0], sfs[0]))
 
 
-class PY3Disk(PY3Unit):
+class PY9Disk(PY9Unit):
     '''
     monitor disk activity
 

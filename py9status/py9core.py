@@ -88,7 +88,7 @@ def process_chunk(unit, chunk, padding, **kwargs):
     return json.dumps(chunk)
 
 
-class PY3Status:
+class PY9Status:
     '''
     class managing the control loop.
 
@@ -100,7 +100,7 @@ class PY3Status:
     def __init__(self, units, min_sleep=0.33, padding=1, chunk_kwargs=None):
         '''
         units:
-            list of PY3Unit units to poll. their ordering in the list will
+            list of PY9Unit units to poll. their ordering in the list will
             order their output.
         padding:
             number of spaces to add at the beginning and end of each unit's
@@ -111,7 +111,7 @@ class PY3Status:
             kwargs to pass to `process_chunk`, which formats unit output
             into the format expected by i3. Globally verride `process_chunk`
             defaults with this. Units also have means of doing this on an
-            individual basis. see PY3Unit.
+            individual basis. see PY9Unit.
         '''
 
         self.fail = ''
@@ -274,7 +274,7 @@ class PY3Status:
             time.sleep(max(self.min_sleep, self._unit_q[0][0] - time.time()))
 
 
-class PY3Unit:
+class PY9Unit:
     '''
     class producing a single chunk of the status line
 
@@ -317,7 +317,7 @@ class PY3Unit:
             ival:
                 frequency with which the control loop will try to poll this
                 unit. True frequency will be somewhat less
-                (see `PY3Status.run`)
+                (see `PY9Status.run`)
             requires:
                 list of binaries which are required for this unit to function.
                 If any of these is absent, the unit's `_get_chunk`
