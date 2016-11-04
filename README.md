@@ -29,7 +29,7 @@ In addition to in-string display styles and colours, which are controlled by `un
 
 ## Installation
 
-- 1) put `py9status.py` and `py3_default_units.py` in your PYTHONPATH
+- 1) put `py9status.py` and `py9s_default_units.py` in your PYTHONPATH
 - 2) put `run_py9s.py` in your PATH and configure i3 to run it with `status_command run_py9s.py` in your config
 - 3) edit `run_py9s.py` to your heart's content to configure the output. Write your own units, or butcher the defaults.
 - !4) There should be no need to edit the control loop, however; that's the one piece of work that's done for you.
