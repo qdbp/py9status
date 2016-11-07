@@ -1,3 +1,4 @@
+from collections import deque
 from datetime import datetime as dtt
 from re import findall
 from subprocess import check_output
@@ -355,14 +356,13 @@ class PY9Net(PY9Unit):
             for whatever reason
     '''
 
-    def __init__(self, i_f, *args, smooth=1 / 5, **kwargs):
+    def __init__(self, i_f, *args, smooth=5, **kwargs):
         '''
         Args:
             i_f:
                 the interface name
             smooth:
-                constant a for [a * X_t + (1 - a) * X_tm1] IIR smoothing
-                of the displayed rate
+                int, number of samples to average over for boxcar filter
         '''
 
         super().__init__(*args, **kwargs)
@@ -373,6 +373,8 @@ class PY9Net(PY9Unit):
         self.operfile = '/sys/class/net/{}/operstate'.format(i_f)
         self.mark = None
         self.smooth = smooth
+        self._rxtx_dq = deque([None] * smooth, maxlen=smooth)
+        self._time_dq = deque([None] * smooth, maxlen=smooth)
 
     def _get_rx_tx(self):
         with open(self.rx_file, 'r') as f:
@@ -390,23 +392,19 @@ class PY9Net(PY9Unit):
         except FileNotFoundError:
             return {'b_if_error': True}
 
-        if self.mark is None:
-            self.mark = time.time()
-            self.old_rx, self.old_tx = self._get_rx_tx()
-            self.old_rxr, self.old_txr = 0, 0
+        rx, tx = self._get_rx_tx()
+        self._rxtx_dq.append((rx, tx))
+        self._time_dq.append(time.time())
+
+        if self._time_dq[0] is None:
             return {'b_if_loading': True}
         else:
-            rx, tx = self._get_rx_tx()
+            dt = self._time_dq[-1] - self._time_dq[0]
+            rxd = self._rxtx_dq[-1][0] - self._rxtx_dq[0][0]
+            txd = self._rxtx_dq[-1][1] - self._rxtx_dq[0][1]
 
-            now = time.time()
-            rxr = self.smooth * (rx - self.old_rx) / (now - self.mark) +\
-                (1 - self.smooth) * self.old_rxr
-            txr = self.smooth * (tx - self.old_tx) / (now - self.mark) +\
-                (1 - self.smooth) * self.old_txr
-
-            self.old_rx, self.old_tx = rx, tx
-            self.old_rxr, self.old_txr = rxr, txr
-            self.mark = now
+            rxr = rxd/dt
+            txr = txd/dt
 
             return {'f_Bps_down': rxr,
                     'f_Bps_up': txr}
