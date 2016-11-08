@@ -4,11 +4,10 @@ from re import findall
 from subprocess import check_output
 import time
 
-from .py9core import PY9Unit, colorify, pangofy,\
-    get_load_color, get_mem_color, mk_tcolor_str, get_bat_color,\
-    get_color,\
-    BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,\
-    BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F
+from .py9core import (PY9Unit, colorify, pangofy,  # noqa \
+    get_color, mk_tcolor_str,
+    BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,
+    BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F)
 
 
 class PY9Time(PY9Unit):
@@ -80,11 +79,11 @@ class PY9NVGPU(PY9Unit):
         temp = output['i_temp_C']
         return ('gpu [mem used {} MiB ({}%)] [load {}%] [temp {}C]'
                 .format(colorify('{: 4d}'.format(mm),
-                                 get_mem_color(mp)),
+                                 get_color(mp)),
                         colorify('{: 3d}'.format(mp),
-                                 get_mem_color(mp)),
+                                 get_color(mp)),
                         colorify('{: 3d}'.format(lp),
-                                 get_load_color(lp)),
+                                 get_color(lp)),
                         mk_tcolor_str(temp)
                         )
                 )
@@ -125,7 +124,7 @@ class PY9CPU(PY9Unit):
         lp = output['i_load_pct']
         temp = output['i_temp_C']
 
-        color = get_load_color(lp)
+        color = get_color(lp)
         tcolor_str = mk_tcolor_str(temp)
 
         return ('cpu [load ' + colorify('{:3.0f}'.format(lp), color) +
@@ -161,7 +160,7 @@ class PY9Mem(PY9Unit):
         mp = output['i_used_pct']
         ug = output['f_used_G']
 
-        color = get_mem_color(mp)
+        color = get_color(mp)
 
         return ('mem [used ' + colorify('{:4.1f}'.format(ug), color) +
                 ' GiB (' + colorify('{:3.0f}'.format(mp), color) +
@@ -317,7 +316,7 @@ class PY9Bat(PY9Unit):
         # pct = output['f_chr_pct']
         pct = (output['f_chr_pct'] if not self._clicked
                else output['f_chr_pct_design'])
-        pct_str = colorify('{:3.0f}'.format(pct), get_bat_color(pct))
+        pct_str = colorify('{:3.0f}'.format(pct), get_color(pct, rev=True))
 
         status_string = 'unk'
         if output['b_chr']:
@@ -341,70 +340,64 @@ class PY9Bat(PY9Unit):
                         rem_string, status_string)
                 )
 
+
 class PY9Wireless(PY9Unit):
     """Provide wireless network information.
 
     Output API:
-        's_status': up, down, none
-        's_SSID'
-        'f_quality'
+        's_SSID': SSID of the connected network
+        'f_quality': connection quality, %
+
+    Error API:
+        'err_b_down': wireless interface is down
+        'err_b_disconnected': connected to network?
 
     Requires:
         wireless-tools
     """
 
-    def __init__(self, wlan_id, *args, **kwargs):
+    def __init__(self, wlan_if, *args, **kwargs):
         """
         Args:
             wlan_id:
-                wireless device name from `ip link`
-                example: wlan0
+                wireless interface name
         """
-        self.wlan_id = wlan_id
+        self.wlan_if = wlan_if
         super().__init__(*args, requires=['iwconfig'], **kwargs)
 
     def read(self):
         # Future: read stats from /proc/net/wireless?
         # Raw
-        out = check_output(['iwconfig', self.wlan_id]).decode('ascii')
+        out = check_output(['iwconfig', self.wlan_if]).decode('ascii')
         # line1 = out.split('\n')[0]
-
-        output = {'s_status': "up", "s_SSID": "SSID", "f_quality": 0}
 
         # Status
         # No device detected case
-        if "No such device" in out:  # if not connected: "No such device"
-            output['s_status'] = "down"
-            return output
+        if 'No such device' in out:  # if not connected: 'No such device'
+            return {'err_b_down': True}
         # Not connected case
-        if 'off/any' in out:  # if not connected: "ESSID:off/any"
-            output['s_status'] = "none"
-            return output
+
+        if 'off/any' in out:  # if not connected: 'ESSID:off/any'
+            return {'err_b_disconnected': True}
 
         # Raw output data
         raw_SSID = findall('ESSID:"(.*?)"', out)[0]
-        raw_quality_num = findall('Link Quality=(\d*)', out)[0]
-        raw_quality_denom = findall('Link Quality=\d*/(\d*)', out)[0]
 
-        # SSID
-        output['s_SSID'] = raw_SSID
+        n, d = findall('Link Quality=(\d+)/(\d+)', out)[0]
+        quality = 100 * n / d
 
-        # Quality (overall quality of the link)
-        raw_quality = int(raw_quality_num) / int(raw_quality_denom) * 100
-        output['f_quality'] = raw_quality
-
-        return output
+        return {'s_SSID': raw_SSID, 'f_quality': quality}
 
     def format(self, output):
-        # Down/off case
-        if "up" not in output['s_status']:
-            return "w: {}".format(output['s_status'])
-
-        # Parameters: status, SSID, quality
-        quality_string = colorify("{:2.0f}".format(output['f_quality']),
-                                  get_color(output['f_quality']))
-        output = "w [{}%] [{}]".format(quality_string, output['s_SSID'])
-        return output  # Sample output:"w [88%] [SSID]"
+        prefix = "[wlan {} [".format(self.wlan_if)
+        suffix = "]"
+        if output.pop('err_b_down', False):
+            return prefix + colorify('down', BASE08) + suffix
+        elif output.pop('err_b_disconnected', False):
+            return prefix + colorify('---', BASE0E) + suffix
+        else:
+            template = prefix + '{0.s_SSID}] [q {0.f_quality:3.0f}%' + suffix
+            return template.format(output)
 
 
 class PY9Net(PY9Unit):
