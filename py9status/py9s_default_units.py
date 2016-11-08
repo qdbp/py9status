@@ -384,7 +384,7 @@ class PY9Wireless(PY9Unit):
         raw_SSID = findall('ESSID:"(.*?)"', out)[0]
 
         n, d = findall('Link Quality=(\d+)/(\d+)', out)[0]
-        quality = 100 * n / d
+        quality = 100 * float(n) / float(d)
 
         return {'s_SSID': raw_SSID, 'f_quality': quality}
 
