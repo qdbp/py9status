@@ -389,15 +389,15 @@ class PY9Wireless(PY9Unit):
         return {'s_SSID': raw_SSID, 'f_quality': quality}
 
     def format(self, output):
-        prefix = "[wlan {} [".format(self.wlan_if)
+        prefix = "wlan {} [".format(self.wlan_if)
         suffix = "]"
         if output.pop('err_b_down', False):
             return prefix + colorify('down', BASE08) + suffix
         elif output.pop('err_b_disconnected', False):
             return prefix + colorify('---', BASE0E) + suffix
         else:
-            template = prefix + '{0.s_SSID}] [q {0.f_quality:3.0f}%' + suffix
-            return template.format(output)
+            template = prefix + '{}] [{:3.0f}%' + suffix
+            return template.format(output['s_SSID'], output['f_quality'])
 
 
 class PY9Net(PY9Unit):
