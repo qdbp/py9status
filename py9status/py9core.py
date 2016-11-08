@@ -13,6 +13,7 @@ import bisect
 # base 16 tomorrow colors
 # https://chriskempson.github.io/base16/#tomorrow
 
+# TODO: rename the colors to be human readable
 BASE00 = '#1D1F21'
 BASE01 = '#282A2E'
 BASE02 = '#373B41'
@@ -403,14 +404,8 @@ class PY9Unit:
 
 def mk_tcolor_str(temp):
     if temp < 100:
-        tcolor = BASE0B
-        if temp > 50:
-            tcolor = BASE0A
-        elif temp > 75:
-            tcolor = BASE09
-        elif temp > 90:
-            tcolor = BASE08
-        tcolor_str = colorify('{:3.0f}'.format(temp), tcolor)
+        tcolor_str = colorify('{:3.0f}'.format(temp),
+                              get_color(temp, breakpoints=[50, 70, 90]))
     else:  # we're on fire
         tcolor_str = pangofy('{:3.0f}'.format(temp),
                              color='#FFFFFF', background='#FF0000')
@@ -418,70 +413,26 @@ def mk_tcolor_str(temp):
     return tcolor_str
 
 
-# TODO: make generic color function
-def get_mem_color(mem_p):
-    if mem_p > 90:
-        color = BASE08
-    elif mem_p > 75:
-        color = BASE09
-    elif mem_p > 50:
-        color = BASE0A
-    else:
-        color = BASE0B
+def get_color(v, breakpoints=[30, 60, 90],
+              colors=(BASE0B, BASE0A, BASE09, BASE08), rev=False):
+    '''
+    Chooses appropriate conditional-color for colorify function.
 
-    return color
-
-
-def get_bat_color(bat_p):
-    if bat_p > 75:
-        color = BASE0B
-    elif bat_p > 50:
-        color = BASE0A
-    elif bat_p > 25:
-        color = BASE09
-    else:
-        color = BASE08
-
-    return color
-
-
-def get_load_color(load_p):
-    if load_p <= 33:
-        color = BASE0B
-    elif load_p < 66:
-        color = BASE0A
-    elif load_p < 90:
-        color = BASE09
-    else:
-        color = BASE08
-
-    return color
-
-
-def get_color(v, breakpoints=[30, 50, 80],
-              colors=('BASE08', 'BASE09', 'BASE0A', 'BASE0B')):
-    """Chooses appropriate conditional-color for colorify function
-
-    Takes an integer and a list of midpoints (3).
-    Compares the value of the integer to those midpoints and selects
-    the correct one.
-    """
-    i = bisect.bisect(breakpoints, v)
-    return colors[i]
+    Maps an integer and an increasing list of midpoints to a colour in the
+    `colors` array based on the integer's index in the list of midpoints.
+    '''
+    if rev:
+        colors = list(reversed(colors))
+    return colors[bisect.bisect(breakpoints, v)]
 
 
 def pangofy(s, **kwargs):
     '''
     applies kwargs to s, pango style, returning a span string
     '''
-
-    a = '<span ' +\
-        ' '.join(["{}='{}'".format(k, v)
-                  for k, v in kwargs.items()
-                  if v is not None]) +\
-        '>'
+    a = '<span ' + ' '.join(["{}='{}'".format(k, v) for k, v in kwargs.items()
+                             if v is not None]) + '>'
     b = '</span>'
-
     return a + s + b
 
 
