@@ -6,6 +6,7 @@ import time
 
 from .py9core import PY9Unit, colorify, pangofy,\
     get_load_color, get_mem_color, mk_tcolor_str, get_bat_color,\
+    get_color,\
     BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,\
     BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F
 
@@ -339,6 +340,71 @@ class PY9Bat(PY9Unit):
                 .format(braces[0], pct_str, braces[1],
                         rem_string, status_string)
                 )
+
+class PY9Wireless(PY9Unit):
+    """Provide wireless network information.
+
+    Output API:
+        's_status': up, down, none
+        's_SSID'
+        'f_quality'
+
+    Requires:
+        wireless-tools
+    """
+
+    def __init__(self, wlan_id, *args, **kwargs):
+        """
+        Args:
+            wlan_id:
+                wireless device name from `ip link`
+                example: wlan0
+        """
+        self.wlan_id = wlan_id
+        super().__init__(*args, requires=['iwconfig'], **kwargs)
+
+    def read(self):
+        # Future: read stats from /proc/net/wireless?
+        # Raw
+        out = check_output(['iwconfig', self.wlan_id]).decode('ascii')
+        # line1 = out.split('\n')[0]
+
+        output = {'s_status': "up", "s_SSID": "SSID", "f_quality": 0}
+
+        # Status
+        # No device detected case
+        if "No such device" in out:  # if not connected: "No such device"
+            output['s_status'] = "down"
+            return output
+        # Not connected case
+        if 'off/any' in out:  # if not connected: "ESSID:off/any"
+            output['s_status'] = "none"
+            return output
+
+        # Raw output data
+        raw_SSID = findall('ESSID:"(.*?)"', out)[0]
+        raw_quality_num = findall('Link Quality=(\d*)', out)[0]
+        raw_quality_denom = findall('Link Quality=\d*/(\d*)', out)[0]
+
+        # SSID
+        output['s_SSID'] = raw_SSID
+
+        # Quality (overall quality of the link)
+        raw_quality = int(raw_quality_num) / int(raw_quality_denom) * 100
+        output['f_quality'] = raw_quality
+
+        return output
+
+    def format(self, output):
+        # Down/off case
+        if "up" not in output['s_status']:
+            return "w: {}".format(output['s_status'])
+
+        # Parameters: status, SSID, quality
+        quality_string = colorify("{:2.0f}".format(output['f_quality']),
+                                  get_color(output['f_quality']))
+        output = "w [{}%] [{}]".format(quality_string, output['s_SSID'])
+        return output  # Sample output:"w [88%] [SSID]"
 
 
 class PY9Net(PY9Unit):

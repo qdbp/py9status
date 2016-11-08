@@ -8,6 +8,7 @@ from shutil import which
 from sys import stdout, stdin
 import time
 import traceback as trc
+import bisect
 
 # base 16 tomorrow colors
 # https://chriskempson.github.io/base16/#tomorrow
@@ -455,6 +456,18 @@ def get_load_color(load_p):
         color = BASE08
 
     return color
+
+
+def get_color(v, breakpoints=[30, 50, 80],
+              colors=('BASE08', 'BASE09', 'BASE0A', 'BASE0B')):
+    """Chooses appropriate conditional-color for colorify function
+
+    Takes an integer and a list of midpoints (3).
+    Compares the value of the integer to those midpoints and selects
+    the correct one.
+    """
+    i = bisect.bisect(breakpoints, v)
+    return colors[i]
 
 
 def pangofy(s, **kwargs):
