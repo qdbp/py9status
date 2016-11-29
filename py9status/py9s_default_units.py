@@ -1,5 +1,6 @@
 from collections import deque
 from datetime import datetime as dtt
+from glob import glob
 from re import findall
 from subprocess import check_output
 import time
@@ -100,6 +101,9 @@ class PY9CPU(PY9Unit):
     Output API:
         'i_load_pct': CPU load percentage
         'i_temp_C': CPU temperature, deg C
+
+    Error API:
+        'b_err_notemp': True if temperature is not available
     '''
 
     def __init__(self, *args, **kwargs):
@@ -114,20 +118,32 @@ class PY9CPU(PY9Unit):
         # - idle - cpuwait
         load_p = 100 - float(pcts[-1]) - float(pcts[-7])
 
-        with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
-            temp = int(f.read()) // 1000
+        temp = None
+        # assume this exists
+        for fn in glob('/sys/class/thermal/thermal_zone*/temp'):
+            with open(fn, 'r') as f:
+                read_temp = int(f.read()) // 1000
+                temp = read_temp if temp is None else max(temp, read_temp)
 
-        return {'i_load_pct': load_p,
-                'i_temp_C': temp}
+        out = {'i_load_pct': load_p}
+        out.update({'i_temp_C': temp}
+                   if temp is not None else {'b_err_notemp': True})
+
+        return out
 
     def format(self, output):
         lp = output['i_load_pct']
-        temp = output['i_temp_C']
+        l_color = get_color(lp)
 
-        color = get_color(lp)
-        tcolor_str = mk_tcolor_str(temp)
+        no_temp = output.pop('b_err_notemp', False)
 
-        return ('cpu [load ' + colorify('{:3.0f}'.format(lp), color) +
+        if no_temp:
+            tcolor_str = colorify('unk', BASE09)
+        else:
+            temp = output['i_temp_C']
+            tcolor_str = mk_tcolor_str(temp)
+
+        return ('cpu [load ' + colorify('{:3.0f}'.format(lp), l_color) +
                 '%] [temp ' + tcolor_str + 'C]')
 
 
