@@ -412,16 +412,11 @@ class PY9Wireless(PY9Unit):
         elif output.pop('err_b_disconnected', False):
             return prefix + colorify('---', BASE0E) + suffix
         else:
-<<<<<<< HEAD
-            template = prefix + '{}] [{:3.0f}%' + suffix
-            return template.format(output['s_SSID'], output['f_quality'])
-=======
             template = prefix + '{}] [{}%' + suffix
             quality = output['f_quality']
             q_color = get_color(quality, rev=True)
             q_str = colorify('{:3.0f}'.format(quality), q_color)
             return template.format(output['s_SSID'], q_str)
->>>>>>> b101ff0c005678de40d2b4732155841d31482e69
 
 
 class PY9Net(PY9Unit):
