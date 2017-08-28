@@ -265,6 +265,10 @@ class PY9Bat(PY9Unit):
         except (FileNotFoundError, IOError):
             return {'b_error_no_bat': True}
 
+        present = findall(r'POWER_SUPPLY_PRESENT=(\w+)', raw)[0]
+        if int(present) != 1:
+            return {'b_error_no_bat': True}
+
         raw_status = findall(r'POWER_SUPPLY_STATUS=(\w+)', raw)[0]
         try:
             cur_fill, max_fill, max_fill_d, drain =\
@@ -313,14 +317,15 @@ class PY9Bat(PY9Unit):
         return out
 
     def format(self, output):
-        e_prefix = 'bat [{}]'
+        e_prefix = f'bat{self.bat_id}' + ' [{}]'
         if output.pop('b_error_no_bat', False):
             return e_prefix.format(
-                colorify('battery {} not found'.format(self.bat_id), BASE08))
+                colorify('no bat', BASE08)
+            )
         elif output.pop('b_error_unknown_format', False):
             return e_prefix.format(
-                colorify('battery {} readout in unknown format'
-                         .format(self.bat_id), BASE08))
+                colorify('readout in unknown format', BASE08)
+            )
 
         # if clicked, show a border; if unclicked, clear it
         # if self._clicked:
