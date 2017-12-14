@@ -1,14 +1,17 @@
 #! /usr/bin/python
 
-from collections import deque
+import asyncio as aio
+import bisect
 import concurrent.futures as cfu
 import heapq as hpq
 import json
-from shutil import which
-from sys import stdout, stdin
 import time
 import traceback as trc
-import bisect
+from abc import abstractmethod, abstractproperty
+from collections import Counter, deque
+from shutil import which
+from sys import stdin, stdout
+from typing import Dict
 
 # base 16 tomorrow colors
 # https://chriskempson.github.io/base16/#tomorrow
@@ -38,15 +41,13 @@ CHUNK_DEFAULTS = {'markup': 'pango',
 
 
 def process_chunk(unit, chunk, padding, **kwargs):
+    # TODO: short_text support
     '''
-    generates a JSON string snippet corresponding to one i3bar element.
+    Generates a JSON string snippet corresponding to one i3bar element.
 
     Args:
         chunk:
-    '''
-    # TODO: short_text support
-    '''
-            a string, the `full_text` of the unit's output, or None
+            A string, the `full_text` of the unit's output, or `None`.
         padding:
             number of spaces to add at the beginning and end of each unit's
             text
@@ -68,7 +69,6 @@ def process_chunk(unit, chunk, padding, **kwargs):
     if chunk is None:
         return ''
 
-    assert isinstance(chunk, str)
     chunk = {'full_text': chunk}
 
     # change some defaults:
@@ -92,14 +92,14 @@ def process_chunk(unit, chunk, padding, **kwargs):
 
 class PY9Status:
     '''
-    class managing the control loop.
+    Class managing the control loop.
 
     contains distinct units which each generate one or more output chunks,
     and are polled for output independently according to their `unit.ival`
     value
     '''
 
-    def __init__(self, units, min_sleep=0.33, padding=1, chunk_kwargs=None):
+    def __init__(self, units, min_sleep=0.1, padding=1, chunk_kwargs=None):
         '''
         units:
             list of PY9Unit units to poll. their ordering in the list will
@@ -117,7 +117,9 @@ class PY9Status:
         '''
 
         self.fail = ''
-        names = set()
+        names = set()  # type: ignore
+        self.loop = aio.get_event_loop()
+
         for u in units:
             if u.name not in names:
                 names.add(u.name)
@@ -132,12 +134,8 @@ class PY9Status:
         self.units = units
         self.units_by_name = {u.name: u for u in units}
 
-        self._unit_q = []
-        self._click_q = deque()
-        self._exe = cfu.ThreadPoolExecutor(max_workers=8)
-
         if chunk_kwargs is None:
-            self.chunk_kwargs = {}
+            self.chunk_kwargs = {}  # type: ignore
         else:
             assert isinstance(chunk_kwargs, dict)
             self.chunk_kwargs = chunk_kwargs
@@ -153,10 +151,6 @@ class PY9Status:
                                    **self.chunk_kwargs
                                    )
              for u in self.units}
-
-        for u in self.units:
-            self._exe.submit(self._exe_unit, u)
-            hpq.heappush(self._unit_q, (time.time() + u.ival, u))
 
     def write_statusline(self):
         '''
@@ -174,76 +168,34 @@ class PY9Status:
         stdout.write('[' + ','.join(o) + '],\n')
         stdout.flush()
 
-    def _read_clicks(self):
-        '''
-        "daemon" loop, to run in a separate thread, reading click events
-        provided by i3 to stdin and dispatching them to _exe_unit
-        '''
-        # TODO: maybe find a proper json parser, not this DIY hackery
+    async def read_clicks(self):
+        rt = aio.StreamReader()
+        rp = aio.StreamReaderProtocol(rt)
+
+        await self.loop.connect_read_pipe(lambda: rp, stdin)
+
+        # we can get by without a json parser for this stream, carefully...
+        # "burn" the opening [\n or ,\n
+        await rt.read(2)
+
         while True:
-            # "burn" the opening [\n or ,\n
-            stdin.read(2)
             try:
-                # TODO: ...
-                # maybe this would be more reasonable in cython
-                # but I don't want to pull in third-party json streamers
-                s = ''
-                while True:
-                    c = stdin.read(1)
-                    s += c
-                    if c == '}':
-                        break
-
-                click = json.loads(s)
-                self._exe.submit(self._exe_unit,
-                                 self.units_by_name[click.pop('name')],
-                                 clicked=True, click=click)
-
+                raw = await rt.readuntil(b'}')
+                click = json.loads(raw)
+                self.units_by_name[click.pop('name')].handle_click(click)
+                # burn the comma
+                await rt.readuntil(b',')
             except Exception:
                 continue
 
-    def _exe_unit(self, unit, clicked=False, click=None):
+    async def line_writer(self):
+        while True:
+            self.write_statusline()
+            await aio.sleep(self.min_sleep)
+
+    def run(self) -> None:
         '''
-        execute unit._get_chunk(), updating its most current output
-        in self.unit_outputs.
-
-        if clicked is true (and thus click is provided), unit.handle_click
-        is addicionally called before _get_chunk invocation. furthermore,
-        if `clicked`, the statusline is written immediately after _get_chunk
-        returns, so that the user can be given immediate feedback.
-
-        if `_get_chunk` or `process_chunk` raises an uncaught exception,
-        the unit enters a failure state, indicated on the status line.
-        '''
-        # TODO: provide means of unit debugging on fail
-        try:
-            if clicked:
-                assert click is not None
-                unit.handle_click(click)
-            o = unit._get_chunk()
-            self.unit_outputs[unit.name] =\
-                process_chunk(unit, o, self.padding, **self.chunk_kwargs)
-            # assume statusline is costly enough to process such that
-            # having it rewritten on every unit execution would be imprudent
-            # hence, we aggregate in unit_outputs, then print in a batch
-            # unless the unit has been clicked and needs an immediate update
-            if clicked:
-                self.write_statusline()
-        except Exception:
-            trc.print_exc()
-            self.unit_outputs[unit.name] =\
-                process_chunk(unit,
-                              colorify('unit "{}" failed'.format(unit.name),
-                                       '#FF0000'),
-                              self.padding, **self.chunk_kwargs)
-
-    def run(self):
-        '''
-        the main control loop.
-
-        units to run next are kept in a priority queue. when a unit is executed
-        its next "to run" time is set to `unit.ival + time.time()`
-        (NOT `unit.ival` + previous time).
+        The main control loop.
         '''
 
         # header
@@ -253,27 +205,23 @@ class PY9Status:
         if self.fail:
             stdout.write('[' + self.fail + '],\n')
             stdout.flush()
+
             while True:
                 time.sleep(1e9)
 
-        # start input reader
-        self._exe.submit(self._read_clicks)
+        aio.ensure_future(self.read_clicks(), loop=self.loop)
+        for unit in self.units:
+            aio.ensure_future(
+                unit._main_loop(
+                    self.unit_outputs,
+                    self.padding,
+                    self.chunk_kwargs
+                ),
+                loop=self.loop,
+            )
+        aio.ensure_future(self.line_writer())
 
-        while True:
-
-            now = time.time()
-            while self._unit_q[0][0] < now:
-                t, u = self._unit_q[0]
-                # threads - don't GIL on me
-                self._exe.submit(self._exe_unit, u)
-                hpq.heapreplace(self._unit_q, (now + u.ival, u))
-
-            # writing a statuline is -assumed- somehwat costly on the i3
-            # end, therefore we don't just roll it into exe_unit, unless
-            # the unit is clicked
-            self.write_statusline()
-
-            time.sleep(max(self.min_sleep, self._unit_q[0][0] - time.time()))
+        self.loop.run_forever()
 
 
 class PY9Unit:
@@ -307,9 +255,9 @@ class PY9Unit:
 
     '''
 
-    api = set('s_info')
+    name_resolver = Counter()  # type: ignore
 
-    def __init__(self, name=None, ival=1., requires=None):
+    def __init__(self, name=None, ival=0.33, requires=None):
         '''
         Args:
             name:
@@ -336,13 +284,16 @@ class PY9Unit:
                 same as above, but `process_chunk` will not clear these.
                 subordinate to transient_overrides.
         '''
+
         if name is None:
-            name = self.__class__.__name__
+            cname = self.__class__.__name__
+            name_ix = self.name_resolver[cname]
+            name = cname + ('' if name_ix == 0 else f'_{name_ix}')
 
         self.name = name
         self.ival = ival
-        self.transient_overrides = {}
-        self.permanent_overrides = {}
+        self.transient_overrides: Dict[str, str] = {}
+        self.permanent_overrides: Dict[str, str] = {}
 
         if requires is not None:
             for req in requires:
@@ -357,9 +308,11 @@ class PY9Unit:
         # threads from exploding, but I'm not sure
         # self.ovr_lock = Lock()
 
-    def _get_chunk(self):
+    async def _main_loop(self, d_out, padding, chunk_kwargs):
         '''
-        format the unit's output according to the formatting method given
+        Returns chunks suitable for display, forever.
+
+        Format the unit's output according to the formatting method given
 
         returns a string which will be taken to be the `full_text` of the
         associated
@@ -369,22 +322,44 @@ class PY9Unit:
         markup; or a dict, assumed to conform to the i3bar api and which will
         be serialized as given (pango markup will still be enabled).
         '''
-        return self.format(self.read())
+        while True:
+            try:
+                d_out[self.name] = process_chunk(
+                    self,
+                    self.format(self.read()),
+                    padding, **chunk_kwargs
+                )
+            except Exception:
+                trc.print_exc()
+                d_out[self.name] = process_chunk(
+                    self,
+                    colorify(f'unit "{self.name}" failed', '#FF0000'),
+                    padding,
+                    **chunk_kwargs
+                )
 
+            await aio.sleep(self.ival)
+
+    # @abstractproperty
+    # def api(self):
+    #     '''
+    #     Get a dictionary mapping read output keys to their types.
+    #     '''
+
+    @abstractmethod
     def read(self):
         '''
-        get the unit's output in dict format, in line with its api
+        Get the unit's output as a dictionary, in line with its API.
 
-        read returns a dict, rather than setting internal state as could be
+        Read returns a dict, rather than setting internal state as could be
         the case, to avoid concurrency issues.
         '''
-        return {'s_info': 'dummy unit output'}
 
+    @abstractmethod
     def format(self, read_output):
         '''
-        format the unit's `read` output
+        Format the unit's `read` output
         '''
-        return '{s_info:}'.format(**read_output)
 
     def handle_click(self, click):
         '''
