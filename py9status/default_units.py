@@ -6,7 +6,7 @@ from re import findall
 from subprocess import check_output
 import time
 
-from .py9core import (PY9Unit, colorify, pangofy,  # noqa \
+from .core import (PY9Unit, colorify, pangofy,  # noqa \
     get_color, mk_tcolor_str,
     BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,
     BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F)
@@ -127,7 +127,7 @@ class PY9CPU(PY9Unit):
 
     def _read_cpu_times(self):
         self.pstat.seek(0)
-        
+
         comps = [int(x) for x in self.pstat.readline().split(' ')[1:] if x]
 
         return sum(comps), comps[0] + comps[1], comps[2]
@@ -479,17 +479,7 @@ class PY9Wireless(PY9Unit):
 
 class PY9Net(PY9Unit):
     '''
-    monitor bytes sent and received per unit time on a network interface
-
-    Output API:
-        'f_Bps_down': download rate in bytes per second
-        'f_Bps_up': upload rate in bytes per second
-
-    Error API:
-        'b_if_down': true if the interface is accessible but explicitly down
-        'b_if_loading': true if the unit hasn't fully initialized
-        'b_if_error': true if the interface statistics cannot be read
-            for whatever reason
+    Monitor bytes sent and received per unit time on a network interface.
     '''
 
     def __init__(self, i_f, *args, smooth=10, **kwargs):
@@ -504,9 +494,12 @@ class PY9Net(PY9Unit):
         super().__init__(*args, **kwargs)
         self.i_f = i_f
 
-        self.rx_file = '/sys/class/net/{}/statistics/rx_bytes'.format(i_f)
-        self.tx_file = '/sys/class/net/{}/statistics/tx_bytes'.format(i_f)
-        self.operfile = '/sys/class/net/{}/operstate'.format(i_f)
+        # FIXME we can in principle keep these files open, we just need
+        # special exception handing for cases when the interface goes down
+        # and then back up
+        self.rx_file = f'/sys/class/net/{i_f}/statistics/rx_bytes'
+        self.tx_file = f'/sys/class/net/{i_f}/statistics/tx_bytes'
+        self.operfile = f'/sys/class/net/{i_f}/operstate'
         self.mark = None
         self.smooth = smooth
         self._rxtx_dq = deque([None] * smooth, maxlen=smooth)
@@ -519,44 +512,57 @@ class PY9Net(PY9Unit):
             tx = int(f.read())
         return rx, tx
 
+    @property
+    def api(self):
+        return {
+            'err_if_down': (bool, 'The named interface is down.'),
+            'err_if_gone': (bool, 'The named interface does not exist.'),
+            'err_if_loading':
+                (bool, 'Currently loading statistics for the interface'),
+            'Bps_down': (float, 'Bytes per second, ingress'),
+            'Bps_up': (float, 'Bytes per second, egress'),
+        }
+
     def read(self):
         try:
             with open(self.operfile, 'r') as f:
                 if "down" in f.read():
                     self.mark = None
-                    return {'b_if_down': True}
-        except FileNotFoundError:
-            return {'b_if_error': True}
+                    return {'err_if_down': True}
+        except OSError:
+            return {'err_if_gone': True}
 
         rx, tx = self._get_rx_tx()
         self._rxtx_dq.append((rx, tx))
         self._time_dq.append(time.time())
 
         if self._time_dq[0] is None:
-            return {'b_if_loading': True}
+            return {'err_if_loading': True}
         else:
             dt = self._time_dq[-1] - self._time_dq[0]
             rxd = self._rxtx_dq[-1][0] - self._rxtx_dq[0][0]
             txd = self._rxtx_dq[-1][1] - self._rxtx_dq[0][1]
 
-            rxr = rxd/dt
-            txr = txd/dt
+            rxr = rxd / dt
+            txr = txd / dt
 
-            return {'f_Bps_down': rxr,
-                    'f_Bps_up': txr}
+            return {
+                'Bps_down': rxr,
+                'Bps_up': txr,
+            }
 
     def format(self, output):
-        prefix = 'net {} '.format(self.i_f)
+        prefix = f'net {self.i_f} '
 
-        if (output.pop('b_if_error', False) or
-                output.pop('b_if_down', False)):
-            return prefix + colorify('down', BASE08)
-
-        if output.pop('b_if_loading', False):
+        if output.pop('err_if_gone', False):
+            return prefix + colorify('gone', BASE08)
+        if output.pop('err_if_down', False):
+            return prefix + colorify('down', BASE09)
+        if output.pop('err_if_loading', False):
             return prefix + colorify('loading', BASE0E)
 
         sfs = [colorify('B/s', BASE03), colorify('B/s', BASE03)]
-        vals = [output['f_Bps_down'], output['f_Bps_up']]
+        vals = [output['Bps_down'], output['Bps_up']]
         for ix in range(2):
             for mag, sf in [(30, colorify('G/s', BASE0E)),
                             (20, colorify('M/s', BASE07)),
@@ -566,9 +572,11 @@ class PY9Net(PY9Unit):
                     sfs[ix] = sf
                     break
 
-        return (prefix +
-                '[u {:6.1f} {:>3s}] '.format(vals[1], sfs[1]) +
-                '[d {:6.1f} {:>3s}] '.format(vals[0], sfs[0]))
+        return (
+            prefix +
+            f'[u {vals[1]:6.1f} {sfs[1]:>3s}] ' +
+            f'[d {vals[0]:6.1f} {sfs[0]:>3s}]'
+        )
 
 
 class PY9Disk(PY9Unit):

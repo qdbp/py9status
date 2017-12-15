@@ -1,7 +1,7 @@
 #! /usr/bin/python
 
-from py9status.py9core import PY9Status
-from py9status.py9s_default_units import *
+from py9status.core import PY9Status
+from py9status.default_units import *
 
 # you can write your own units! it's recommended to use a separate
 # file, which you then import as:

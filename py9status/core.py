@@ -2,16 +2,14 @@
 
 import asyncio as aio
 import bisect
-import concurrent.futures as cfu
-import heapq as hpq
 import json
 import time
 import traceback as trc
 from abc import abstractmethod, abstractproperty
-from collections import Counter, deque
+from collections import Counter
 from shutil import which
 from sys import stdin, stdout
-from typing import Dict
+from typing import Any, Dict, Set, Tuple, Counter as Ctr_t
 
 # base 16 tomorrow colors
 # https://chriskempson.github.io/base16/#tomorrow
@@ -117,7 +115,7 @@ class PY9Status:
         '''
 
         self.fail = ''
-        names = set()  # type: ignore
+        names: Set[str] = set()
         self.loop = aio.get_event_loop()
 
         for u in units:
@@ -135,7 +133,7 @@ class PY9Status:
         self.units_by_name = {u.name: u for u in units}
 
         if chunk_kwargs is None:
-            self.chunk_kwargs = {}  # type: ignore
+            self.chunk_kwargs: Dict[str, Any] = {}
         else:
             assert isinstance(chunk_kwargs, dict)
             self.chunk_kwargs = chunk_kwargs
@@ -154,13 +152,11 @@ class PY9Status:
 
     def write_statusline(self):
         '''
-        aggregates all units' output into a single string statusline and
+        Aggregates all units' output into a single string statusline and
         writes it.
         '''
         o = []
         for u in self.units:
-            # we don't really care about concurrent modification
-            # no synchrony is expected among unit updates
             chunk_json = self.unit_outputs[u.name]
             if chunk_json:
                 o.append(chunk_json)
@@ -226,38 +222,27 @@ class PY9Status:
 
 class PY9Unit:
     '''
-    class producing a single chunk of the status line
+    Class producing a single chunk of the status line. Individual units
+    should inherit directly from this class.
 
-    each class is, ideally, documented with an Output API, specifying the
-    set of output names which are to be expected and handled by format,
-    as output by `unit.read`, which returns dicts of {name: value}
-    outputs. That `unit.read` actually adheres to this api is not
-    enforced by any code, but should be respected by those wishing to
-    write good units.
+    Each subclass is documented with an Output API, specifying the
+    set of output names of the unit.
 
-    Below is a soft specification for how `unit.read` should behave:
+    The existence of a `unit.api` @property is enforced, and should yield
+    a dictionary of `key: (type, description)` elements. Each key should
+    correpond to a key in the dictionary output by `read`. This api should
+    be seen as an extended-form docstring for those wishing to override
+    `format` without knowing the details of `read`.
 
-     - for the convenience of those overriding `format`, the convention
-    that names are prefixed with their type is followed. Common
-    prefixed found in default units are:
-        i_ for integer,
-        f_ for float/double,
-        s_ for string
-        b_ for boolean
-
-    since these prefixes are purely descriptive, feel free to use them
-    as creatively as you see fit.
-
-    - the API can provide for `b_` error flags when expected output
-    cannot be produced. As a matter of convention, these flags should be
-    checked for first, since other members are not guaranteed to exist
-    in the case of an error.
-
+    By convention, `read` should indicate failure states through keys
+    named `err_*`. `format` should check for these first, as their presence
+    might indicate the absence or invalidity of data keys. These errors
+    should be documented in the `api`.
     '''
 
-    name_resolver = Counter()  # type: ignore
+    name_resolver: Ctr_t[str] = Counter()
 
-    def __init__(self, name=None, ival=0.33, requires=None):
+    def __init__(self, name=None, ival=0.33, requires=None) -> None:
         '''
         Args:
             name:
@@ -309,19 +294,6 @@ class PY9Unit:
         # self.ovr_lock = Lock()
 
     async def _main_loop(self, d_out, padding, chunk_kwargs):
-        '''
-        Returns chunks suitable for display, forever.
-
-        Format the unit's output according to the formatting method given
-
-        returns a string which will be taken to be the `full_text` of the
-        associated
-
-        the return value should either be a string, which will be assumed to
-        be the full_text value of the unit's output, and which permits pango
-        markup; or a dict, assumed to conform to the i3bar api and which will
-        be serialized as given (pango markup will still be enabled).
-        '''
         while True:
             try:
                 d_out[self.name] = process_chunk(
@@ -340,41 +312,37 @@ class PY9Unit:
 
             await aio.sleep(self.ival)
 
-    # @abstractproperty
-    # def api(self):
-    #     '''
-    #     Get a dictionary mapping read output keys to their types.
-    #     '''
+    @abstractproperty
+    def api(self) -> Dict[str, Tuple[type, str]]:
+        '''
+        Get a dictionary mapping read output keys to their types and
+        descriptions.
+        '''
 
     @abstractmethod
-    def read(self):
+    def read(self) -> Dict[str, Any]:
         '''
         Get the unit's output as a dictionary, in line with its API.
-
-        Read returns a dict, rather than setting internal state as could be
-        the case, to avoid concurrency issues.
         '''
 
     @abstractmethod
-    def format(self, read_output):
+    def format(self, read_output: Dict[str, Any]) -> str:
         '''
-        Format the unit's `read` output
+        Format the unit's `read` output, returning a string.
+
+        The string will be placed in the "full_text" key of the json sent to
+        i3.
+
+        The string may optionally use pango formatting.
         '''
 
-    def handle_click(self, click):
+    def handle_click(self, click: Dict[str, Any]) -> None:
         '''
-        handle the i3-generated `click`, passed as a dictionary. returns None.
+        Handle the i3-generated `click`, passed as a dictionary.
 
-        see i3 documentation and example code for click's members
+        See i3 documentation and example code for click's members
         '''
         self.transient_overrides.update({'border': BASE08})
-
-    # comparison functions for heapq not to crash when times are equal
-    def __lt__(self, other):
-        return self.name < other.name
-
-    def __ge__(self, other):
-        return self.name >= other.name
 
 
 def mk_tcolor_str(temp):
