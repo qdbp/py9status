@@ -1,15 +1,15 @@
+import time
 from atexit import register as exreg
 from collections import deque
 from datetime import datetime as dtt
 from glob import glob
 from re import findall
 from subprocess import check_output
-import time
 
-from .core import (PY9Unit, colorify, pangofy,  # noqa \
-    get_color, mk_tcolor_str,
-    BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,
-    BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F)
+from .core import (BASE00, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E,  # noqa \
+                   BASE0F, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06,
+                   BASE07, BASE08, BASE09, PY9Unit, colorify, get_color,
+                   maybe_int, mk_tcolor_str, pangofy)
 
 
 class PY9Time(PY9Unit):
@@ -263,6 +263,12 @@ class PY9Bat(PY9Unit):
     '''
     # TODO: add more; e.g. full/design full, etc.
 
+    STATUS_DIS = 0
+    STATUS_CHR = 1
+    STATUS_BAL = 2
+    STATUS_FUL = 3
+    STATUS_UNK = 4
+
     def __init__(self, *args, bat_id=0, **kwargs):
         '''
         Args:
@@ -273,81 +279,112 @@ class PY9Bat(PY9Unit):
         super().__init__(*args, **kwargs)
         self.bat_id = bat_id
         self.min_rem_smooth = None
+
         self.called = 0
+
         self._p = 1 / 5
         self._q = 1 - self._p
 
         self._clicked = False
-
         self._cur_status = None
 
-    def handle_click(self, click):
-        self._clicked = not self._clicked
+        self.E_hist = deque([])
+        self.P_hist = deque([])
 
-    def _get_power_metrics(self, raw):
-        gauges = ['ENERGY', 'CHARGE']
-        for gauge in gauges:
-            # fill is charge if charge is read, else it is energy
-            # TODO: consider refactoring to output units power only
-            # the barrier to that is that max_energy_d is not obvious
-            # in the voltage/current case
-            # (is it CHARGE_FULL_D * VOLTAGE_MIN_D ?)
-            try:
-                cur_fill = int(findall(r'POWER_SUPPLY_{}_NOW=(\d+)'
-                                       .format(gauge), raw)[0])
-                max_fill = int(findall(r'POWER_SUPPLY_{}_FULL=(\d+)'
-                                       .format(gauge), raw)[0])
-                max_fill_design =\
-                    int(findall(r'POWER_SUPPLY_{}_FULL_DESIGN=(\d+)'
-                                .format(gauge), raw)[0])
-                break
-            except IndexError:
-                continue
-        else:
-            raise ValueError()
-        # drain is in "fill units"; i.e. "power" if energy is read directly
-        # or "current" if charge/voltage is read
-        try:
-            drain = int(findall(r'POWER_SUPPLY_POWER_NOW=(\d+)', raw)[0])
-        except IndexError:
-            drain = int(findall(r'POWER_SUPPLY_CURRENT_NOW=(\d+)', raw)[0])
+        self.f_uevent = open('/sys/class/power_supply/BAT{bat_id}/uevent')
+        exreg(self.f_uevent.close)
 
-        return cur_fill, max_fill, max_fill_design, drain
+    def _parse_uevent(self):
+        self.f_uevent.seek(0)
+        # 13 = len('POWER_SUPPLY_')
+        out = {}
+
+        for line in self.f_uevent.readlines():
+            k, v = line.strip().split('=')
+            out[k[13:].lower()] = maybe_int(v.lower())
+
+        return out
+
+    @property
+    def api(self):
+        return {
+            'err_no_bat':
+                (bool, 'The battery corresponding to the given battery id was '
+                       'not found on the system.'),
+            'err_bad_uevent':
+                (bool, 'Unexpected or missing values in the uevent file.'),
+            'err_bad_format':
+                (bool, '$bat/uevent had an unrecognized format.'),
+            'status':
+                (int, 'The current battery status, as given by the STATUS_*'
+                      'class variables'),
+            'min_rem':
+                (int, 'Minutes remaning until empty. -1 if indefinite'),
+            'charged_p':
+                (float, 'Percentage charged of current max capacity.'),
+            'charged_p_design':
+                (float, 'Percentage charged of factory capacity.'),
+        }
 
     def read(self):
+
         self.called += 1
-        fn_uevent = '/sys/class/power_supply/BAT{}/uevent'.format(self.bat_id)
+        ued = self._parse_uevent()
+
+        if not ued['present']:
+            return {'err_no_bat': True}
+
+        # if we have only charges and currents, do the power
+        # calculations ourselves.
         try:
-            with open(fn_uevent, 'r') as f:
-                raw = f.read()
-        except (FileNotFoundError, IOError):
-            return {'b_error_no_bat': True}
+            if 'charge_now' in ued:
+                Q = ued['charge_now'] / 1e6
+                Qmx = ued['charge_full'] / 1e6
+                Qmxd = ued['charge_full_design'] / 1e6
 
-        present = findall(r'POWER_SUPPLY_PRESENT=(\w+)', raw)[0]
-        if int(present) != 1:
-            return {'b_error_no_bat': True}
+                V = ued['voltage_now'] / 1e6
+                Vmn = ued['voltage_min_design'] / 1e6
 
-        raw_status = findall(r'POWER_SUPPLY_STATUS=(\w+)', raw)[0]
-        try:
-            cur_fill, max_fill, max_fill_d, drain =\
-                self._get_power_metrics(raw)
-        except ValueError:
-            return {'b_error_unkown_format': True}
+                # assume voltage is linear from V0 = voltage_min_design
+                # at Q = 0, to Vmxd at Q = Qmxd = charge_full_design
+                # then E = Qmx * (V0 + Vmx) / 2
 
-        out = {'b_chr': False, 'b_dis': False, 'b_bal': False, 'b_full': False}
+                Vmx = V * (Qmx / Q)
+                Emx = Qmx * (Vmn + Vmx) / 2
 
-        if raw_status == "Charging":
-            out['b_chr'] = True
-            status = 'chr'
-        elif raw_status == "Full":
-            out['b_full'] = True
-            status = 'ful'
+                Vmxd = V * (Qmxd / Q)
+                Emxd = Qmxd * (Vmn + Vmxd) / 2
+
+                # E(Q), integrating the assumed linear relationship
+                E = Vmn * Qmxd + ((Q * Q) / (2 * Qmxd)) * (Vmxd - Vmn)
+                P = ued.get('current_now', 0) * ued['voltage_now']
+
+            else:
+                E = ued['energy_now'] / 1e6
+                Emx = ued['energy_full'] / 1e6
+                Emxd = ued['energy_full_design'] / 1e6
+                P = ued['power_now']
+
+            charged_p = E / Emx
+            charged_p_design = E / Emxd
+
+        except (KeyError, ZeroDivisionError):
+            return {'err_bad_uevent': True}
+
+        raw_status = ued['status']
+
+        if raw_status == "charging":
+            status = self.STATUS_CHR
+        elif raw_status == "full":
+            status = self.STATUS_FUL
+        elif raw_status == 'unknown':
+            status = self.STATUS_UNK
         elif drain == 0:
-            out['b_bal'] = True
-            status = 'bal'
+            status = self.STATUS_BAL
         else:
-            out['b_dis'] = True
-            status = 'dis'
+            status = self.STATUS_DIS
+
+        out['status'] = status
 
         # reset the smoothing if we detect a status change
         if status != self._cur_status:
@@ -372,6 +409,7 @@ class PY9Bat(PY9Unit):
                 self._p * m_rem + self._q * self.min_rem_smooth
         out['i_min_rem_smooth'] = int(self.min_rem_smooth)
 
+        self.called += 1
         return out
 
     def format(self, output):
@@ -418,6 +456,9 @@ class PY9Bat(PY9Unit):
                 .format(braces[0], pct_str, braces[1],
                         rem_string, status_string)
                 )
+
+    def handle_click(self, click):
+        self._clicked = not self._clicked
 
 
 class PY9Wireless(PY9Unit):

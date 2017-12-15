@@ -381,3 +381,10 @@ def pangofy(s, **kwargs):
 
 def colorify(s, color):
     return pangofy(s, color=color)
+
+
+def maybe_int(x):
+    try:
+        return int(x)
+    except ValueError:
+        return x
