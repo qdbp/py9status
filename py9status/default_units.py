@@ -1,3 +1,4 @@
+from atexit import register as exreg
 from collections import deque
 from datetime import datetime as dtt
 from glob import glob
@@ -5,7 +6,7 @@ from re import findall
 from subprocess import check_output
 import time
 
-from .py9core import (PY9Unit, colorify, pangofy,  # noqa \
+from .core import (PY9Unit, colorify, pangofy,  # noqa \
     get_color, mk_tcolor_str,
     BASE00, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06, BASE07,
     BASE08, BASE09, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E, BASE0F)
@@ -108,43 +109,85 @@ class PY9CPU(PY9Unit):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, requires=['mpstat'], **kwargs)
+        self.pstat = open('/proc/stat', 'r')
+        exreg(self.pstat.close)
+
+        self.tt0, self.tu0, self.tk0 = self._read_cpu_times()
+        self.show_breakdown = False
+        # to make sure that cpuinfo is updated at least once on read
+        time.sleep(0.01)
+
+    @property
+    def api(self):
+        return {
+            'p_u': (float, 'Fraction of cpu time used by userland.'),
+            'p_k': (float, 'Fraction of cpu time used by kernel.'),
+            'temp_C': (float, 'Average cpu temperature.'),
+        }
+
+    def _read_cpu_times(self):
+        self.pstat.seek(0)
+
+        comps = [int(x) for x in self.pstat.readline().split(' ')[1:] if x]
+
+        return sum(comps), comps[0] + comps[1], comps[2]
 
     def read(self):
         # TODO: implement smoothing
-        out = check_output(['mpstat', '1', '1']).decode('ascii')
-        l = out.split('\n')[3]
 
-        pcts = findall(r'[0-9\.]+', l)
-        # - idle - cpuwait
-        load_p = 100 - float(pcts[-1]) - float(pcts[-7])
+        tt, tu, tk = self._read_cpu_times()
+        dtt = tt - self.tt0
+        dtu = tu - self.tu0
+        dtk = tk - self.tk0
+        self.tt0, self.tu0, self.tk0 = tt, tu, tk
 
-        temp = None
+        p_u = dtu / dtt
+        p_k = dtk / dtt
+
+        temp = 0.
+        n_cores = 0
         # assume this exists
+        # XXX modernize
         for fn in glob('/sys/class/thermal/thermal_zone*/temp'):
             with open(fn, 'r') as f:
-                read_temp = int(f.read()) // 1000
-                temp = read_temp if temp is None else max(temp, read_temp)
+                try:
+                    temp += float(f.read()) / 1000
+                    n_cores += 1
+                except Exception:
+                    temp = None  # type: ignore
 
-        out = {'i_load_pct': load_p}
-        out.update({'i_temp_C': temp}
+        if temp is not None:
+            temp /= n_cores
+
+        out = {'p_k': p_k, 'p_u': p_u}
+        out.update({'temp_C': temp}
                    if temp is not None else {'b_err_notemp': True})
 
         return out
 
     def format(self, output):
-        lp = output['i_load_pct']
-        l_color = get_color(lp)
+        pu = output['p_u'] * 100
+        pk = output['p_k'] * 100
 
         no_temp = output.pop('b_err_notemp', False)
 
         if no_temp:
             tcolor_str = colorify('unk', BASE09)
         else:
-            temp = output['i_temp_C']
+            temp = output['temp_C']
             tcolor_str = mk_tcolor_str(temp)
 
-        return ('cpu [load ' + colorify('{:3.0f}'.format(lp), l_color) +
-                '%] [temp ' + tcolor_str + 'C]')
+        if self.show_breakdown:
+            load_str = 'u ' + colorify(f'{pu:3.0f}', get_color(pu)) + \
+                '% k' + colorify(f'{pk:3.0f}', get_color(pk)) + '%'
+        else:
+            load_str =\
+                'load ' + colorify(f'{pu + pk:3.0f}%', get_color(pu + pk))
+
+        return 'cpu [' + load_str + '] [temp ' + tcolor_str + 'C]'
+
+    def handle_click(self, *args):
+        self.show_breakdown = not self.show_breakdown
 
 
 class PY9Mem(PY9Unit):
@@ -159,22 +202,37 @@ class PY9Mem(PY9Unit):
         'i_used_pct': used memory, %
     '''
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.f_mem = open('/proc/meminfo', 'r')
+        exreg(self.f_mem.close)
+
+    @property
+    def api(self):
+        # FIXME add detailed onclick info for buffers, etc
+        return {
+            'used_GiB': (float, 'Used memory, GiB'),
+            'used_frac': (float, 'Fraction of memory used'),
+        }
+
     def read(self):
-        out = check_output(['free', '-m']).decode('ascii')
-        l = out.split('\n')[1]
-        entries = findall(r'[0-9\.]+', l)
 
-        tot, used = int(entries[0]) / (1 << 10), int(entries[1]) / (1 << 10)
-        p_used = 100 * used / tot
+        self.f_mem.seek(0)
+        memlines = self.f_mem.readlines()
+        m_tot_g = int(memlines[0].split(' ')[-2]) >> 20
+        m_av_g = int(memlines[2].split(' ')[-2]) >> 20
 
-        return {'f_used_G': used,
-                'i_used_pct': p_used}
+        used_g = m_tot_g - m_av_g
+        used_p = used_g / m_tot_g
 
-        return out
+        return {
+            'used_GiB': used_g,
+            'used_frac': used_p,
+        }
 
     def format(self, output):
-        mp = output['i_used_pct']
-        ug = output['f_used_G']
+        mp = output['used_frac'] * 100
+        ug = output['used_GiB']
 
         color = get_color(mp)
 
@@ -426,20 +484,10 @@ class PY9Wireless(PY9Unit):
 
 class PY9Net(PY9Unit):
     '''
-    monitor bytes sent and received per unit time on a network interface
-
-    Output API:
-        'f_Bps_down': download rate in bytes per second
-        'f_Bps_up': upload rate in bytes per second
-
-    Error API:
-        'b_if_down': true if the interface is accessible but explicitly down
-        'b_if_loading': true if the unit hasn't fully initialized
-        'b_if_error': true if the interface statistics cannot be read
-            for whatever reason
+    Monitor bytes sent and received per unit time on a network interface.
     '''
 
-    def __init__(self, i_f, *args, smooth=5, **kwargs):
+    def __init__(self, i_f, *args, smooth=10, **kwargs):
         '''
         Args:
             i_f:
@@ -451,9 +499,12 @@ class PY9Net(PY9Unit):
         super().__init__(*args, **kwargs)
         self.i_f = i_f
 
-        self.rx_file = '/sys/class/net/{}/statistics/rx_bytes'.format(i_f)
-        self.tx_file = '/sys/class/net/{}/statistics/tx_bytes'.format(i_f)
-        self.operfile = '/sys/class/net/{}/operstate'.format(i_f)
+        # FIXME we can in principle keep these files open, we just need
+        # special exception handing for cases when the interface goes down
+        # and then back up
+        self.rx_file = f'/sys/class/net/{i_f}/statistics/rx_bytes'
+        self.tx_file = f'/sys/class/net/{i_f}/statistics/tx_bytes'
+        self.operfile = f'/sys/class/net/{i_f}/operstate'
         self.mark = None
         self.smooth = smooth
         self._rxtx_dq = deque([None] * smooth, maxlen=smooth)
@@ -466,44 +517,57 @@ class PY9Net(PY9Unit):
             tx = int(f.read())
         return rx, tx
 
+    @property
+    def api(self):
+        return {
+            'err_if_down': (bool, 'The named interface is down.'),
+            'err_if_gone': (bool, 'The named interface does not exist.'),
+            'err_if_loading':
+                (bool, 'Currently loading statistics for the interface'),
+            'Bps_down': (float, 'Bytes per second, ingress'),
+            'Bps_up': (float, 'Bytes per second, egress'),
+        }
+
     def read(self):
         try:
             with open(self.operfile, 'r') as f:
                 if "down" in f.read():
                     self.mark = None
-                    return {'b_if_down': True}
-        except FileNotFoundError:
-            return {'b_if_error': True}
+                    return {'err_if_down': True}
+        except OSError:
+            return {'err_if_gone': True}
 
         rx, tx = self._get_rx_tx()
         self._rxtx_dq.append((rx, tx))
         self._time_dq.append(time.time())
 
         if self._time_dq[0] is None:
-            return {'b_if_loading': True}
+            return {'err_if_loading': True}
         else:
             dt = self._time_dq[-1] - self._time_dq[0]
             rxd = self._rxtx_dq[-1][0] - self._rxtx_dq[0][0]
             txd = self._rxtx_dq[-1][1] - self._rxtx_dq[0][1]
 
-            rxr = rxd/dt
-            txr = txd/dt
+            rxr = rxd / dt
+            txr = txd / dt
 
-            return {'f_Bps_down': rxr,
-                    'f_Bps_up': txr}
+            return {
+                'Bps_down': rxr,
+                'Bps_up': txr,
+            }
 
     def format(self, output):
-        prefix = 'net {} '.format(self.i_f)
+        prefix = f'net {self.i_f} '
 
-        if (output.pop('b_if_error', False) or
-                output.pop('b_if_down', False)):
-            return prefix + colorify('down', BASE08)
-
-        if output.pop('b_if_loading', False):
+        if output.pop('err_if_gone', False):
+            return prefix + colorify('gone', BASE08)
+        if output.pop('err_if_down', False):
+            return prefix + colorify('down', BASE09)
+        if output.pop('err_if_loading', False):
             return prefix + colorify('loading', BASE0E)
 
         sfs = [colorify('B/s', BASE03), colorify('B/s', BASE03)]
-        vals = [output['f_Bps_down'], output['f_Bps_up']]
+        vals = [output['Bps_down'], output['Bps_up']]
         for ix in range(2):
             for mag, sf in [(30, colorify('G/s', BASE0E)),
                             (20, colorify('M/s', BASE07)),
@@ -513,9 +577,11 @@ class PY9Net(PY9Unit):
                     sfs[ix] = sf
                     break
 
-        return (prefix +
-                '[u {:6.1f} {:>3s}] '.format(vals[1], sfs[1]) +
-                '[d {:6.1f} {:>3s}] '.format(vals[0], sfs[0]))
+        return (
+            prefix +
+            f'[u {vals[1]:6.1f} {sfs[1]:>3s}] ' +
+            f'[d {vals[0]:6.1f} {sfs[0]:>3s}]'
+        )
 
 
 class PY9Disk(PY9Unit):
