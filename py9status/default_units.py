@@ -3,8 +3,10 @@ from atexit import register as exreg
 from collections import deque
 from datetime import datetime as dtt
 from glob import glob
+from statistics import mean
 from re import findall
 from subprocess import check_output
+from typing import Deque as Deque_t
 
 from .core import (BASE00, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E,  # noqa \
                    BASE0F, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06,
@@ -282,16 +284,12 @@ class PY9Bat(PY9Unit):
 
         self.called = 0
 
-        self._p = 1 / 5
-        self._q = 1 - self._p
-
         self._clicked = False
         self._cur_status = None
 
-        self.E_hist = deque([])
-        self.P_hist = deque([])
+        self.P_hist: Deque_t[float] = deque([], maxlen=int(10 / self.ival))
 
-        self.f_uevent = open('/sys/class/power_supply/BAT{bat_id}/uevent')
+        self.f_uevent = open(f'/sys/class/power_supply/BAT{bat_id}/uevent')
         exreg(self.f_uevent.close)
 
     def _parse_uevent(self):
@@ -311,22 +309,24 @@ class PY9Bat(PY9Unit):
             'err_no_bat':
                 (bool, 'The battery corresponding to the given battery id was '
                        'not found on the system.'),
-            'err_bad_uevent':
-                (bool, 'Unexpected or missing values in the uevent file.'),
             'err_bad_format':
                 (bool, '$bat/uevent had an unrecognized format.'),
             'status':
                 (int, 'The current battery status, as given by the STATUS_*'
                       'class variables'),
-            'min_rem':
-                (int, 'Minutes remaning until empty. -1 if indefinite'),
-            'charged_p':
-                (float, 'Percentage charged of current max capacity.'),
-            'charged_p_design':
-                (float, 'Percentage charged of factory capacity.'),
+            'sec_rem':
+                (float, 'Seconds remaning until empty/full. -1 if indefinite, '
+                        'None if loading.'),
+            'charged_f':
+                (float, 'Fraction charged of current max capacity.'),
+            'charged_f_design':
+                (float, 'Fraction charged of factory capacity.'),
         }
 
     def read(self):
+
+        # micro-X-hour to SI
+        uhtosi = 0.0036
 
         self.called += 1
         ued = self._parse_uevent()
@@ -334,20 +334,28 @@ class PY9Bat(PY9Unit):
         if not ued['present']:
             return {'err_no_bat': True}
 
-        # if we have only charges and currents, do the power
-        # calculations ourselves.
+        # all units SI
         try:
+            # if we have only charges and currents, do the power
+            # calculations ourselves.
             if 'charge_now' in ued:
-                Q = ued['charge_now'] / 1e6
-                Qmx = ued['charge_full'] / 1e6
-                Qmxd = ued['charge_full_design'] / 1e6
+                # given in uAh, convert to C
+                Q = uhtosi * ued['charge_now']
+                Qmx = uhtosi * ued['charge_full']
+                Qmxd = uhtosi * ued['charge_full_design']
 
                 V = ued['voltage_now'] / 1e6
                 Vmn = ued['voltage_min_design'] / 1e6
 
-                # assume voltage is linear from V0 = voltage_min_design
-                # at Q = 0, to Vmxd at Q = Qmxd = charge_full_design
-                # then E = Qmx * (V0 + Vmx) / 2
+                I = ued['current_now'] / 1e6
+                P = I * V
+
+                # assume V(Q) is linear, V(0) = Vmin
+                # then Vmxd = Vmin + (Qmxd / Q) * (V - Vmin)
+                # then Emxd = Qmx * (V0 + Vmx) / 2
+
+                # NOTE could build a more sophisticated statistical model for
+                # V(Q), but that seems needlessly complicated
 
                 Vmx = V * (Qmx / Q)
                 Emx = Qmx * (Vmn + Vmx) / 2
@@ -356,20 +364,23 @@ class PY9Bat(PY9Unit):
                 Emxd = Qmxd * (Vmn + Vmxd) / 2
 
                 # E(Q), integrating the assumed linear relationship
-                E = Vmn * Qmxd + ((Q * Q) / (2 * Qmxd)) * (Vmxd - Vmn)
-                P = ued.get('current_now', 0) * ued['voltage_now']
+                E = Q * (Vmn + Q * (Vmxd - Vmn) / (2 * Qmxd))
 
             else:
-                E = ued['energy_now'] / 1e6
-                Emx = ued['energy_full'] / 1e6
-                Emxd = ued['energy_full_design'] / 1e6
-                P = ued['power_now']
+                # XXX test these on different models
+                P = ued['power_now'] / 1e6
+                # these are given in watt hours, SIfy them
+                E = uhtosi * ued['energy_now']
+                Emx = uhtosi * ued['energy_full']
+                Emxd = uhtosi * ued['energy_full_design']
 
-            charged_p = E / Emx
-            charged_p_design = E / Emxd
+            charged_f = E / Emx
+            charged_f_design = E / Emxd
 
-        except (KeyError, ZeroDivisionError):
-            return {'err_bad_uevent': True}
+        except KeyError:
+            return {'err_bad_format': True}
+
+        out = {'charged_f': charged_f, 'charged_f_design': charged_f_design}
 
         raw_status = ued['status']
 
@@ -379,10 +390,12 @@ class PY9Bat(PY9Unit):
             status = self.STATUS_FUL
         elif raw_status == 'unknown':
             status = self.STATUS_UNK
-        elif drain == 0:
+        elif raw_status == 'discharging':
+            status = self.STATUS_DIS
+        elif P == 0:
             status = self.STATUS_BAL
         else:
-            status = self.STATUS_DIS
+            status = self.STATUS_UNK
 
         out['status'] = status
 
@@ -390,72 +403,74 @@ class PY9Bat(PY9Unit):
         if status != self._cur_status:
             self.min_rem_smooth = None
             self._cur_status = status
+            self.P_hist.clear()
 
-        out['f_chr_pct'] = 100 * cur_fill / max_fill
-        out['f_chr_pct_design'] = 100 * cur_fill / max_fill_d
+        self.P_hist.append(P)
 
-        if out['b_chr']:
-            m_rem = 60 * (max_fill - cur_fill) / drain
-        elif out['b_dis']:
-            m_rem = int(60 * cur_fill / drain)
+        if len(self.P_hist) < 10:
+            return out
+
+        av_p = mean(self.P_hist)
+
+        if status == self.STATUS_CHR:
+            sec_rem = (Emx - E) / av_p
+        elif status == self.STATUS_DIS:
+            sec_rem = E / av_p
         else:
-            m_rem = -1  # distinct from None
+            sec_rem = -1
 
-        out['i_min_rem'] = m_rem
-        if self.min_rem_smooth is None:
-            self.min_rem_smooth = m_rem
-        else:
-            self.min_rem_smooth =\
-                self._p * m_rem + self._q * self.min_rem_smooth
-        out['i_min_rem_smooth'] = int(self.min_rem_smooth)
+        out['sec_rem'] = sec_rem
 
-        self.called += 1
         return out
 
-    def format(self, output):
+    def format(self, info):
         e_prefix = f'bat{self.bat_id}' + ' [{}]'
-        if output.pop('b_error_no_bat', False):
-            return e_prefix.format(
-                colorify('no bat', BASE08)
-            )
-        elif output.pop('b_error_unknown_format', False):
-            return e_prefix.format(
-                colorify('readout in unknown format', BASE08)
-            )
 
-        # if clicked, show a border; if unclicked, clear it
-        # if self._clicked:
-        #     self.permanent_overrides['border'] = BASE08
-        # elif 'border' in self.permanent_overrides:
-        #     del self.permanent_overrides['border']
+        if info.pop('err_no_bat', False):
+            return e_prefix.format(colorify('no bat', BASE08))
+
+        elif info.pop('err_bad_format', False):
+            return e_prefix.format(colorify('loading', BASE09))
 
         # if self._clicked, show % of design capacity instead
         # pct = output['f_chr_pct']
-        pct = (output['f_chr_pct'] if not self._clicked
-               else output['f_chr_pct_design'])
-        pct_str = colorify('{:3.0f}'.format(pct), get_color(pct, rev=True))
 
-        status_string = 'unk'
-        if output['b_chr']:
-            status_string = colorify('chr', BASE0B)
-        elif output['b_dis']:
-            status_string = colorify('dis', BASE09)
-        elif output['b_full']:
-            status_string = 'ful'
+        if self._clicked:
+            pct = 100 * info['charged_f_design']
         else:
-            status_string = 'bal'
+            pct = 100 * info['charged_f']
 
-        m_rem = output['i_min_rem_smooth']
-        if m_rem > 0:
-            rem_string = '{:02d}:{:02d}'.format(m_rem // 60, m_rem % 60)
+        pct_str = colorify(f'{pct:3.0f}', get_color(pct, rev=True))
+
+        st = info['status']
+
+        if st == self.STATUS_CHR:
+            st_string = colorify('chr', BASE0B)
+        elif st == self.STATUS_DIS:
+            st_string = colorify('dis', BASE09)
+        elif st == self.STATUS_FUL:
+            st_string = colorify('ful', BASE0D)
+        elif st == self.STATUS_BAL:
+            st_string = colorify('bal', BASE0C)
         else:
+            st_string = colorify('unk', BASE0E)
+
+        raw_sec_rem = info.get('sec_rem')
+
+        if raw_sec_rem is None:
+            rem_string = colorify('loading', BASE0E)
+        elif raw_sec_rem < 0:
             rem_string = '--:--'
+        else:
+            isr = round(raw_sec_rem)
+            min_rem = (isr // 60) % 60
+            hr_rem = isr // 3600
 
-        braces = '[]' if not self._clicked else ['&lt;', '&gt;']
-        return ('bat {}{}%{} [{} rem, {}]'
-                .format(braces[0], pct_str, braces[1],
-                        rem_string, status_string)
-                )
+            rem_string = f'{hr_rem:02d}:{min_rem:02d}'
+
+        x = '[]' if not self._clicked else ['&lt;', '&gt;']
+
+        return f'bat {x[0]}{pct_str}%{x[1]} [{rem_string} rem, {st_string}]'
 
     def handle_click(self, click):
         self._clicked = not self._clicked
