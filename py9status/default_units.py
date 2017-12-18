@@ -1,4 +1,5 @@
 import time
+from bisect import bisect
 from atexit import register as exreg
 from collections import deque
 from datetime import datetime as dtt
@@ -6,7 +7,7 @@ from glob import glob
 from statistics import mean
 from re import findall
 from subprocess import check_output
-from typing import Deque as Deque_t
+from typing import Deque as Deque_t, Tuple
 
 from .core import (BASE00, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E,  # noqa \
                    BASE0F, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06,
@@ -116,8 +117,12 @@ class PY9CPU(PY9Unit):
 
         self.tt0, self.tu0, self.tk0 = self._read_cpu_times()
         self.show_breakdown = False
+
         # to make sure that cpuinfo is updated at least once on read
         time.sleep(0.01)
+
+        self._us: Deque_t[float] = deque([], maxlen=int(1 / self.ival))
+        self._ks: Deque_t[float] = deque([], maxlen=int(1 / self.ival))
 
     @property
     def api(self):
@@ -143,8 +148,11 @@ class PY9CPU(PY9Unit):
         dtk = tk - self.tk0
         self.tt0, self.tu0, self.tk0 = tt, tu, tk
 
-        p_u = dtu / dtt
-        p_k = dtk / dtt
+        # p_u = dtu / dtt
+        # p_k = dtk / dtt
+
+        self._us.append(dtu / dtt)
+        self._ks.append(dtk / dtt)
 
         temp = 0.
         n_cores = 0
@@ -161,7 +169,7 @@ class PY9CPU(PY9Unit):
         if temp is not None:
             temp /= n_cores
 
-        out = {'p_k': p_k, 'p_u': p_u}
+        out = {'p_k': mean(self._ks), 'p_u': mean(self._us)}
         out.update({'temp_C': temp}
                    if temp is not None else {'b_err_notemp': True})
 
@@ -543,7 +551,7 @@ class PY9Net(PY9Unit):
     Monitor bytes sent and received per unit time on a network interface.
     '''
 
-    def __init__(self, i_f, *args, smooth=10, **kwargs):
+    def __init__(self, i_f, *args, **kwargs):
         '''
         Args:
             i_f:
@@ -561,10 +569,10 @@ class PY9Net(PY9Unit):
         self.rx_file = f'/sys/class/net/{i_f}/statistics/rx_bytes'
         self.tx_file = f'/sys/class/net/{i_f}/statistics/tx_bytes'
         self.operfile = f'/sys/class/net/{i_f}/operstate'
-        self.mark = None
-        self.smooth = smooth
-        self._rxtx_dq = deque([None] * smooth, maxlen=smooth)
-        self._time_dq = deque([None] * smooth, maxlen=smooth)
+
+        self._rx_dq: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
+        self._tx_dq: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
+        self._time_dq: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
 
     def _get_rx_tx(self):
         with open(self.rx_file, 'r') as f:
@@ -588,21 +596,25 @@ class PY9Net(PY9Unit):
         try:
             with open(self.operfile, 'r') as f:
                 if "down" in f.read():
-                    self.mark = None
+                    self._rx_dq.clear()
+                    self._tx_dq.clear()
+                    self._time_dq.clear()
                     return {'err_if_down': True}
         except OSError:
             return {'err_if_gone': True}
 
         rx, tx = self._get_rx_tx()
-        self._rxtx_dq.append((rx, tx))
+
+        self._rx_dq.append(rx)
+        self._tx_dq.append(tx)
         self._time_dq.append(time.time())
 
         if self._time_dq[0] is None:
             return {'err_if_loading': True}
         else:
             dt = self._time_dq[-1] - self._time_dq[0]
-            rxd = self._rxtx_dq[-1][0] - self._rxtx_dq[0][0]
-            txd = self._rxtx_dq[-1][1] - self._rxtx_dq[0][1]
+            rxd = self._rx_dq[-1] - self._rx_dq[0]
+            txd = self._tx_dq[-1] - self._tx_dq[0]
 
             rxr = rxd / dt
             txr = txd / dt
@@ -642,76 +654,94 @@ class PY9Net(PY9Unit):
 
 class PY9Disk(PY9Unit):
     '''
-    monitor disk activity
-
-    Output API:
-        'b_read': whether the disk has been read since the last check
-        'b_write': whether the disk has been written to since the last check
-
-    Error API:
-        'b_no_disk': disk statistics cannot be read for the disk
-            (it probably does not exist)
-        'b_disk_loading': disk information is loading
+    Monitors disk activity.
     '''
 
-    def __init__(self, disk, *args, bs=512, **kwargs):
+    BARS = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+    THRESHS = [1.] + [1 << i for i in range(10, 24, 2)]
+
+    def __init__(self, disk, *args, **kwargs):
         '''
         Args:
             disk:
                 the disk label as found in `/dev/`, e.g. "sda", etc.
-            bs:
-                the disk block size in bytes, will usually be 512
         '''
-        self.disk = disk
-        self.bs = bs
-        self.stat = '/sys/class/block/{}/stat'.format(self.disk)
-
         super().__init__(*args, **kwargs)
 
-        self.last_r = None
-        self.last_w = None
+        self.disk = disk
+
+        self.stat_fn = f'/sys/class/block/{disk}/stat'
+
+        self._ss = self._get_sector_size()
+
+        self.last_r, self.last_w, self.last_t = self._read_rw()
+
+    def _read_rw(self) -> Tuple[int, int, float]:
+        '''
+        Returns the number of bytes read and written since last call, as
+        well as the time of read.
+        '''
+        with open(self.stat_fn, 'r') as f:
+            spl = f.read().split()
+            return self._ss * int(spl[2]), self._ss * int(spl[6]), time.time()
+
+    def _get_sector_size(self):
+        candidates = glob('/sys/block/*')
+
+        best = None
+        best_len = -1
+        
+        for cand in candidates:
+            base = cand.split('/')[-1]
+            if self.disk.startswith(base) and len(base) > best_len:
+                best = base
+                best_len = len(base)
+
+        if best is None:
+            self._fail = f'no disk {self.disk}'
+            return 0
+
+        self._fail = False
+
+        with open('/sys/block/' + best + '/queue/hw_sector_size') as f:
+            return int(f.read())
+
+    @property
+    def api(self):
+        return {
+            'err_no_disk': (bool, 'The given disk or parttion was not found.'),
+            'bps_read': (float, 'Bytes per second read from disk'),
+            'bps_write': (float, 'Bytes per second written to disk'),
+        }
 
     def read(self):
-        # TODO: free space, in flight reading, read magnitudes
+
+        # if we've faled before, try to recover
+        if self._fail:
+            self._ss = self._get_sector_size()
+
         try:
-            with open(self.stat, 'r') as f:
-                _, _, r, _, _, _, w, _, ifl, _, _ =\
-                    [int(x) for x in f.read().split()]
-        except FileNotFoundError:
-            return
+            if self._ss == 0:
+                raise ValueError
+            r, w, t = self._read_rw()
+        except (OSError, ValueError):
+            return {'err_no_disk': True}
 
-        out = {'b_read': False, 'b_write': False}
+        dr = r - self.last_r
+        dw = w - self.last_w
+        dt = t - self.last_t
+        self.last_r, self.last_w, self.last_t = r, w, t
 
-        if self.last_r is not None:
-            dr = r - self.last_r
-            dw = w - self.last_w
-            self.last_r = r
-            self.last_w = w
-            if dr > 0:
-                out['b_read'] = True
-            if dw > 0:
-                out['b_write'] = True
-        else:
-            self.last_r = r
-            self.last_w = w
-            return {'b_loading': True}
+        return {'bps_read': dr / dt, 'bps_write': dw / dt}
 
-        return out
+    def format(self, info):
 
-    def format(self, output):
         context = 'disk [' + self.disk + ' {}]'
-        if output.pop('b_no_disk', False):
-            return context.format(colorify('---', BASE08))
-        if output.pop('b_loading', False):
-            return context.format(colorify('loading', BASE0E))
 
-        r_fmt = {'color': BASE00}
-        if output['b_read']:
-            r_fmt['background'] = BASE0D
+        if info.pop('err_no_disk', False):
+            return context.format(colorify('absent', BASE0F))
 
-        w_fmt = {'color': BASE00}
-        if output['b_write']:
-            w_fmt['background'] = BASE09
+        rbar = self.BARS[bisect(self.THRESHS, info['bps_read'])]
+        wbar = self.BARS[bisect(self.THRESHS, info['bps_write'])]
 
-        return context.format('{}{}'.format(pangofy('R', **r_fmt),
-                                            pangofy('W', **w_fmt)))
+        return context.format(colorify(rbar, BASE0D) + colorify(wbar, BASE09))

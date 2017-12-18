@@ -8,7 +8,7 @@ import traceback as trc
 from abc import abstractmethod, abstractproperty
 from collections import Counter
 from shutil import which
-from sys import stdin, stdout
+from sys import stdin, stdout, stderr
 from typing import Any, Dict, Set, Tuple, Counter as Ctr_t
 
 # base 16 tomorrow colors
@@ -289,24 +289,26 @@ class PY9Unit:
                                  ']')
                     break
 
-        # TODO: I think the GIL will prevent dict.updates from different
-        # threads from exploding, but I'm not sure
-        # self.ovr_lock = Lock()
+        self._fail = False
 
     async def _main_loop(self, d_out, padding, chunk_kwargs):
         while True:
             try:
+                if self._fail:
+                    raise ValueError
                 d_out[self.name] = process_chunk(
                     self,
                     self.format(self.read()),
                     padding, **chunk_kwargs
                 )
             except Exception:
-                trc.print_exc()
+                if self._fail:
+                    fail_str = colorify(self._fail, BASE0F)
+                else:
+                    fail_str = colorify(f'unit "{self.name}" failed', BASE0F)
+                trc.print_exc(file=stderr)
                 d_out[self.name] = process_chunk(
-                    self,
-                    colorify(f'unit "{self.name}" failed', '#FF0000'),
-                    padding,
+                    self, fail_str, padding,
                     **chunk_kwargs
                 )
 
@@ -348,7 +350,7 @@ class PY9Unit:
 def mk_tcolor_str(temp):
     if temp < 100:
         tcolor_str = colorify('{:3.0f}'.format(temp),
-                              get_color(temp, breakpoints=[50, 70, 90]))
+                              get_color(temp, breakpoints=[30, 50, 70, 90]))
     else:  # we're on fire
         tcolor_str = pangofy('{:3.0f}'.format(temp),
                              color='#FFFFFF', background='#FF0000')
@@ -356,8 +358,8 @@ def mk_tcolor_str(temp):
     return tcolor_str
 
 
-def get_color(v, breakpoints=[30, 60, 90],
-              colors=(BASE0B, BASE0A, BASE09, BASE08), rev=False):
+def get_color(v, breakpoints=[20, 40, 60, 80],
+              colors=(BASE0D, BASE0B, BASE0A, BASE09, BASE08), rev=False):
     '''
     Chooses appropriate conditional-color for colorify function.
 
