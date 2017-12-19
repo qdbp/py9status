@@ -270,13 +270,15 @@ class PY9Unit:
                 subordinate to transient_overrides.
         '''
 
-        if name is None:
-            cname = self.__class__.__name__
-            name_ix = self.name_resolver[cname]
-            name = cname + ('' if name_ix == 0 else f'_{name_ix}')
+        name = name or self.__class__.__name__
 
+        name_ix = self.name_resolver[name]
+        self.name_resolver[name] += 1
+        name += ('' if name_ix == 0 else f'_{name_ix}')
         self.name = name
+
         self.ival = ival
+
         self.transient_overrides: Dict[str, str] = {}
         self.permanent_overrides: Dict[str, str] = {}
 

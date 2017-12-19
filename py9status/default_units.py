@@ -97,21 +97,12 @@ class PY9NVGPU(PY9Unit):
 # TODO: error handling
 class PY9CPU(PY9Unit):
     '''
-    monitors CPU usage and temperature
-
-    Requires:
-        mpstat (sysstat)
-
-    Output API:
-        'i_load_pct': CPU load percentage
-        'i_temp_C': CPU temperature, deg C
-
-    Error API:
-        'b_err_notemp': True if temperature is not available
+    Monitors CPU usage and temperature.
     '''
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, requires=['mpstat'], **kwargs)
+        super().__init__(*args, **kwargs)
+
         self.pstat = open('/proc/stat', 'r')
         exreg(self.pstat.close)
 
@@ -121,8 +112,9 @@ class PY9CPU(PY9Unit):
         # to make sure that cpuinfo is updated at least once on read
         time.sleep(0.01)
 
-        self._us: Deque_t[float] = deque([], maxlen=int(1 / self.ival))
-        self._ks: Deque_t[float] = deque([], maxlen=int(1 / self.ival))
+        self._us: Deque_t[float] = deque([], maxlen=int(2 / self.ival))
+        self._ks: Deque_t[float] = deque([], maxlen=int(2 / self.ival))
+        self._temps: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
 
     @property
     def api(self):
@@ -130,6 +122,7 @@ class PY9CPU(PY9Unit):
             'p_u': (float, 'Fraction of cpu time used by userland.'),
             'p_k': (float, 'Fraction of cpu time used by kernel.'),
             'temp_C': (float, 'Average cpu temperature.'),
+            'err_no_temp': (bool, 'Temperature could not be read.'),
         }
 
     def _read_cpu_times(self):
@@ -148,11 +141,10 @@ class PY9CPU(PY9Unit):
         dtk = tk - self.tk0
         self.tt0, self.tu0, self.tk0 = tt, tu, tk
 
-        # p_u = dtu / dtt
-        # p_k = dtk / dtt
-
         self._us.append(dtu / dtt)
         self._ks.append(dtk / dtt)
+
+        out = {'p_k': mean(self._ks), 'p_u': mean(self._us)}
 
         temp = 0.
         n_cores = 0
@@ -168,10 +160,11 @@ class PY9CPU(PY9Unit):
 
         if temp is not None:
             temp /= n_cores
-
-        out = {'p_k': mean(self._ks), 'p_u': mean(self._us)}
-        out.update({'temp_C': temp}
-                   if temp is not None else {'b_err_notemp': True})
+            self._temps.append(temp)
+            out['temp_C'] = mean(self._temps)
+        else:
+            self._temps.clear()
+            out['err_no_temp'] = True
 
         return out
 
@@ -179,7 +172,7 @@ class PY9CPU(PY9Unit):
         pu = output['p_u'] * 100
         pk = output['p_k'] * 100
 
-        no_temp = output.pop('b_err_notemp', False)
+        no_temp = output.pop('err_no_temp', False)
 
         if no_temp:
             tcolor_str = colorify('unk', BASE09)
