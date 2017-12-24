@@ -381,11 +381,16 @@ class PY9Bat(PY9Unit):
         except KeyError:
             return {'err_bad_format': True}
 
+        self.P_hist.append(P)
+        av_p = mean(self.P_hist)
+
         out = {'charged_f': charged_f, 'charged_f_design': charged_f_design}
 
         raw_status = ued['status']
 
-        if raw_status == "charging":
+        if av_p == 0:
+            status = self.STATUS_BAL
+        elif raw_status == "charging":
             status = self.STATUS_CHR
         elif raw_status == "full":
             status = self.STATUS_FUL
@@ -393,8 +398,6 @@ class PY9Bat(PY9Unit):
             status = self.STATUS_UNK
         elif raw_status == 'discharging':
             status = self.STATUS_DIS
-        elif P == 0:
-            status = self.STATUS_BAL
         else:
             status = self.STATUS_UNK
 
@@ -405,13 +408,6 @@ class PY9Bat(PY9Unit):
             self.min_rem_smooth = None
             self._cur_status = status
             self.P_hist.clear()
-
-        self.P_hist.append(P)
-
-        if len(self.P_hist) < 10:
-            return out
-
-        av_p = mean(self.P_hist)
 
         if status == self.STATUS_CHR:
             sec_rem = (Emx - E) / av_p
