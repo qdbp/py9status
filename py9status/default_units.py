@@ -214,7 +214,7 @@ class PY9Mem(PY9Unit):
     def api(self):
         # FIXME add detailed onclick info for buffers, etc
         return {
-            'used_GiB': (float, 'Used memory, GiB'),
+            'used_KiB': (int, 'Used memory, KiB'),
             'used_frac': (float, 'Fraction of memory used'),
         }
 
@@ -222,20 +222,20 @@ class PY9Mem(PY9Unit):
 
         self.f_mem.seek(0)
         memlines = self.f_mem.readlines()
-        m_tot_g = int(memlines[0].split(' ')[-2]) >> 20
-        m_av_g = int(memlines[2].split(' ')[-2]) >> 20
+        m_tot_kib = int(memlines[0].split(' ')[-2])
+        m_av_kib = int(memlines[2].split(' ')[-2])
 
-        used_g = m_tot_g - m_av_g
-        used_p = used_g / m_tot_g
+        used_kib = m_tot_kib - m_av_kib
+        used_p = used_kib / m_tot_kib
 
         return {
-            'used_GiB': used_g,
+            'used_KiB': used_kib,
             'used_frac': used_p,
         }
 
     def format(self, output):
         mp = output['used_frac'] * 100
-        ug = output['used_GiB']
+        ug = output['used_KiB'] / (1 << 20)
 
         color = get_color(mp)
 
