@@ -1,39 +1,38 @@
 import time
-from bisect import bisect
 from atexit import register as exreg
+from bisect import bisect
 from collections import deque
 from datetime import datetime as dtt
 from glob import glob
-from statistics import mean
 from re import findall
+from statistics import mean
 from subprocess import check_output
-from typing import Deque as Deque_t, Tuple
+from typing import Deque as Deque_t, Dict, Tuple
 
-from .core import (BASE00, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E,  # noqa \
-                   BASE0F, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06,
-                   BASE07, BASE08, BASE09, PY9Unit, colorify, get_color,
-                   maybe_int, mk_tcolor_str, pangofy)
+from .core import (BLUE, BROWN, CYAN, GREEN, GREY, ORANGE, PY9Unit, RED, VIOLET,
+                   WHITE, colorify, get_color, maybe_int,
+                   mk_tcolor_str, )  # noqa \
 
 
 class PY9Time(PY9Unit):
-    '''
-    outputs the current time
+    """
+    Outputs the current time.
 
     Requires:
         date
 
     Output API:
         's_datestr': date string formatted according to `fmt`
-    '''
+    """
     # TODO: turn apis into a class member Enum
 
     def __init__(self, *args, fmt='%a %b %d %Y - %H:%M', **kwargs):
-        '''
+        """
         Args:
             fmt:
                 the format for strftime to print the date in. Defaults
                 to something sensible.
-        '''
+        """
         self.fmt = fmt
         super().__init__(*args, requires=['date'], **kwargs)
 
@@ -46,7 +45,7 @@ class PY9Time(PY9Unit):
 
 
 class PY9NVGPU(PY9Unit):
-    '''
+    """
     monitors a nvidia gpu.
 
     Requires:
@@ -57,7 +56,7 @@ class PY9NVGPU(PY9Unit):
         'i_mem_pct': GPU memoru used, %
         'i_load_pct': GPU load, %
         'i_temp_C': GPU temperature, deg C
-    '''
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, requires=['nvidia-smi'], **kwargs)
@@ -96,9 +95,9 @@ class PY9NVGPU(PY9Unit):
 
 # TODO: error handling
 class PY9CPU(PY9Unit):
-    '''
+    """
     Monitors CPU usage and temperature.
-    '''
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -112,9 +111,10 @@ class PY9CPU(PY9Unit):
         # to make sure that cpuinfo is updated at least once on read
         time.sleep(0.01)
 
-        self._us: Deque_t[float] = deque([], maxlen=int(2 / self.ival))
-        self._ks: Deque_t[float] = deque([], maxlen=int(2 / self.ival))
-        self._temps: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
+        self._us: Deque_t[float] = deque([], maxlen=int(2 / self.poll_interval))
+        self._ks: Deque_t[float] = deque([], maxlen=int(2 / self.poll_interval))
+        self._temps: Deque_t[int] = deque([],
+                                          maxlen=int(2 / self.poll_interval))
 
     @property
     def api(self):
@@ -175,7 +175,7 @@ class PY9CPU(PY9Unit):
         no_temp = output.pop('err_no_temp', False)
 
         if no_temp:
-            tcolor_str = colorify('unk', BASE09)
+            tcolor_str = colorify('unk', ORANGE)
         else:
             temp = output['temp_C']
             tcolor_str = mk_tcolor_str(temp)
@@ -194,7 +194,7 @@ class PY9CPU(PY9Unit):
 
 
 class PY9Mem(PY9Unit):
-    '''
+    """
     monitor memory usage
 
     Requires:
@@ -203,7 +203,7 @@ class PY9Mem(PY9Unit):
     Output API:
         'f_used_G':  used memory, gigabytes
         'i_used_pct': used memory, %
-    '''
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -245,7 +245,7 @@ class PY9Mem(PY9Unit):
 
 
 class PY9Bat(PY9Unit):
-    '''
+    """
     outputs battery usage and charging status
 
     Output API:
@@ -263,7 +263,7 @@ class PY9Bat(PY9Unit):
             or more precisely, if the uevent file cannot be read found
         'b_error_unknown_format': True if the battery's uevent could be read
             but had an unrecognized format.
-    '''
+    """
     # TODO: add more; e.g. full/design full, etc.
 
     STATUS_DIS = 0
@@ -273,12 +273,12 @@ class PY9Bat(PY9Unit):
     STATUS_UNK = 4
 
     def __init__(self, *args, bat_id=0, **kwargs):
-        '''
+        """
         Args:
             bat_id:
                 numerical id of the battery to monitor. will be the
                 default of 0 in most cases
-        '''
+        """
         super().__init__(*args, **kwargs)
         self.bat_id = bat_id
         self.min_rem_smooth = None
@@ -288,7 +288,8 @@ class PY9Bat(PY9Unit):
         self._clicked = False
         self._cur_status = None
 
-        self.P_hist: Deque_t[float] = deque([], maxlen=int(10 / self.ival))
+        self.P_hist: Deque_t[float] = deque([],
+                                            maxlen=int(10 / self.poll_interval))
 
         self.f_uevent = open(f'/sys/class/power_supply/BAT{bat_id}/uevent')
         exreg(self.f_uevent.close)
@@ -424,10 +425,10 @@ class PY9Bat(PY9Unit):
         e_prefix = f'bat{self.bat_id}' + ' [{}]'
 
         if info.pop('err_no_bat', False):
-            return e_prefix.format(colorify('no bat', BASE08))
+            return e_prefix.format(colorify('no bat', RED))
 
         elif info.pop('err_bad_format', False):
-            return e_prefix.format(colorify('loading', BASE09))
+            return e_prefix.format(colorify('loading', ORANGE))
 
         # if self._clicked, show % of design capacity instead
         # pct = output['f_chr_pct']
@@ -442,20 +443,20 @@ class PY9Bat(PY9Unit):
         st = info['status']
 
         if st == self.STATUS_CHR:
-            st_string = colorify('chr', BASE0B)
+            st_string = colorify('chr', GREEN)
         elif st == self.STATUS_DIS:
-            st_string = colorify('dis', BASE09)
+            st_string = colorify('dis', ORANGE)
         elif st == self.STATUS_FUL:
-            st_string = colorify('ful', BASE0D)
+            st_string = colorify('ful', BLUE)
         elif st == self.STATUS_BAL:
-            st_string = colorify('bal', BASE0C)
+            st_string = colorify('bal', CYAN)
         else:
-            st_string = colorify('unk', BASE0E)
+            st_string = colorify('unk', VIOLET)
 
         raw_sec_rem = info.get('sec_rem')
 
         if raw_sec_rem is None:
-            rem_string = colorify('loading', BASE0E)
+            rem_string = colorify('loading', VIOLET)
         elif raw_sec_rem < 0:
             rem_string = '--:--'
         else:
@@ -474,7 +475,8 @@ class PY9Bat(PY9Unit):
 
 
 class PY9Wireless(PY9Unit):
-    """Provide wireless network information.
+    """
+    Provide wireless network information.
 
     Output API:
         's_SSID': SSID of the connected network
@@ -488,12 +490,22 @@ class PY9Wireless(PY9Unit):
         wireless-tools
     """
 
+    @property
+    def api(self) -> Dict[str, Tuple[type, str]]:
+        return {
+            'ssid': (str, 'SSID of the connected network.'),
+            'quality': (float, 'Connection quality, from 0 to 1.'),
+            'err_down': (bool, 'True if the wireless interface is down.'),
+            'err_disconnected':
+                (bool, 'True if there is no network connection.'),
+        }
+
     def __init__(self, wlan_if, *args, **kwargs):
         """
         Args:
-            wlan_id:
-                wireless interface name
+            wlan_if: name of the wireless interface to monitor.
         """
+
         self.wlan_if = wlan_if
         super().__init__(*args, requires=['iwconfig'], **kwargs)
 
@@ -506,48 +518,48 @@ class PY9Wireless(PY9Unit):
         # Status
         # No device detected case
         if 'No such device' in out:  # if not connected: 'No such device'
-            return {'err_b_down': True}
+            return {'err_down': True}
         # Not connected case
 
         if 'off/any' in out:  # if not connected: 'ESSID:off/any'
-            return {'err_b_disconnected': True}
+            return {'err_disconnected': True}
 
         # Raw output data
         raw_SSID = findall('ESSID:"(.*?)"', out)[0]
 
         n, d = findall('Link Quality=(\d+)/(\d+)', out)[0]
-        quality = 100 * float(n) / float(d)
+        quality = float(n) / float(d)
 
-        return {'s_SSID': raw_SSID, 'f_quality': quality}
+        return {'ssid': raw_SSID, 'quality': quality}
 
     def format(self, output):
         prefix = "wlan {} [".format(self.wlan_if)
         suffix = "]"
-        if output.pop('err_b_down', False):
-            return prefix + colorify('down', BASE08) + suffix
-        elif output.pop('err_b_disconnected', False):
-            return prefix + colorify('---', BASE0E) + suffix
+        if output.pop('err_down', False):
+            return prefix + colorify('down', RED) + suffix
+        elif output.pop('err_disconnected', False):
+            return prefix + colorify('---', VIOLET) + suffix
         else:
             template = prefix + '{}] [{}%' + suffix
-            quality = output['f_quality']
+            quality = 100 * output['quality']
             q_color = get_color(quality, rev=True)
             q_str = colorify('{:3.0f}'.format(quality), q_color)
-            return template.format(output['s_SSID'], q_str)
+            return template.format(output['ssid'], q_str)
 
 
 class PY9Net(PY9Unit):
-    '''
+    """
     Monitor bytes sent and received per unit time on a network interface.
-    '''
+    """
 
     def __init__(self, i_f, *args, **kwargs):
-        '''
+        """
         Args:
             i_f:
                 the interface name
             smooth:
                 int, number of samples to average over for boxcar filter
-        '''
+        """
 
         super().__init__(*args, **kwargs)
         self.i_f = i_f
@@ -559,9 +571,12 @@ class PY9Net(PY9Unit):
         self.tx_file = f'/sys/class/net/{i_f}/statistics/tx_bytes'
         self.operfile = f'/sys/class/net/{i_f}/operstate'
 
-        self._rx_dq: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
-        self._tx_dq: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
-        self._time_dq: Deque_t[int] = deque([], maxlen=int(2 / self.ival))
+        self._rx_dq: Deque_t[int] = deque([],
+                                          maxlen=int(2 / self.poll_interval))
+        self._tx_dq: Deque_t[int] = deque([],
+                                          maxlen=int(2 / self.poll_interval))
+        self._time_dq: Deque_t[int] = deque([],
+                                            maxlen=int(2 / self.poll_interval))
 
     def _get_rx_tx(self):
         with open(self.rx_file, 'r') as f:
@@ -617,17 +632,17 @@ class PY9Net(PY9Unit):
         prefix = f'net {self.i_f} '
 
         if output.pop('err_if_gone', False):
-            return prefix + colorify('gone', BASE08)
+            return prefix + colorify('gone', RED)
         if output.pop('err_if_down', False):
-            return prefix + colorify('down', BASE09)
+            return prefix + colorify('down', ORANGE)
         if output.pop('err_if_loading', False):
-            return prefix + colorify('loading', BASE0E)
+            return prefix + colorify('loading', VIOLET)
 
-        sfs = [colorify('B/s', BASE03), colorify('B/s', BASE03)]
+        sfs = [colorify('B/s', GREY), colorify('B/s', GREY)]
         vals = [output['Bps_down'], output['Bps_up']]
         for ix in range(2):
-            for mag, sf in [(30, colorify('G/s', BASE0E)),
-                            (20, colorify('M/s', BASE07)),
+            for mag, sf in [(30, colorify('G/s', VIOLET)),
+                (20, colorify('M/s', WHITE)),
                             (10, 'K/s')]:
                 if vals[ix] > 1 << mag:
                     vals[ix] /= 1 << mag
@@ -642,19 +657,19 @@ class PY9Net(PY9Unit):
 
 
 class PY9Disk(PY9Unit):
-    '''
+    """
     Monitors disk activity.
-    '''
+    """
 
     BARS = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
     THRESHS = [1.] + [1 << i for i in range(10, 24, 2)]
 
     def __init__(self, disk, *args, **kwargs):
-        '''
+        """
         Args:
             disk:
                 the disk label as found in `/dev/`, e.g. "sda", etc.
-        '''
+        """
         super().__init__(*args, **kwargs)
 
         self.disk = disk
@@ -666,10 +681,10 @@ class PY9Disk(PY9Unit):
         self.last_r, self.last_w, self.last_t = self._read_rw()
 
     def _read_rw(self) -> Tuple[int, int, float]:
-        '''
+        """
         Returns the number of bytes read and written since last call, as
         well as the time of read.
-        '''
+        """
         with open(self.stat_fn, 'r') as f:
             spl = f.read().split()
             return self._ss * int(spl[2]), self._ss * int(spl[6]), time.time()
@@ -728,9 +743,9 @@ class PY9Disk(PY9Unit):
         context = 'disk [' + self.disk + ' {}]'
 
         if info.pop('err_no_disk', False):
-            return context.format(colorify('absent', BASE0F))
+            return context.format(colorify('absent', BROWN))
 
         rbar = self.BARS[bisect(self.THRESHS, info['bps_read'])]
         wbar = self.BARS[bisect(self.THRESHS, info['bps_write'])]
 
-        return context.format(colorify(rbar, BASE0D) + colorify(wbar, BASE09))
+        return context.format(colorify(rbar, BLUE) + colorify(wbar, ORANGE))
