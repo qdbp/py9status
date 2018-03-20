@@ -8,13 +8,13 @@ from collections import deque
 from datetime import datetime as dtt
 from glob import glob
 from re import findall
-from statistics import mean, stdev
+from statistics import mean
 from threading import Event, Thread
 from typing import Deque as dq_t, Dict, Tuple
 
 from .core import (BLUE, BROWN, CYAN, GREEN, GREY, ORANGE, PY9Unit, RED, VIOLET,
                    WHITE, colorify, colorize_float, get_color, maybe_int,
-                   mk_tcolor_str, )
+                   mk_tcolor_str, med_mad)
 
 
 class PY9Time(PY9Unit):
@@ -568,7 +568,7 @@ class PY9Net(PY9Unit):
             r'icmp_seq=([0-9]+) ttl=[0-9]+ time=([0-9]+(?:\.[0-9]+)?) ms'
         )
 
-        def __init__(self, server, interface, buflen=100, timeout=5.0):
+        def __init__(self, server, interface, buflen=1000, timeout=5.0):
             """
             Args:
                 server: the server to ping
@@ -619,7 +619,7 @@ class PY9Net(PY9Unit):
             _read_pipe, _write_pipe = os.pipe()
 
             self._proc = sbp.Popen(
-                ['ping', '-I', self.interface, '-i', '0.33', self.server],
+                ['ping', '-I', self.interface, '-i', '0.2', self.server],
                 stdout=_write_pipe, stderr=_write_pipe, shell=False,
             )
             self._pipefile = os.fdopen(_read_pipe)
@@ -644,14 +644,14 @@ class PY9Net(PY9Unit):
                 return self.PING_LOADING, None
 
             else:
-                m = mean(self._ping_rtts)
-                s = stdev(self._ping_rtts)
+                med, mad = med_mad(self._ping_rtts)
+                mx = max(self._ping_rtts)
                 loss = (
                                self._ping_seqs[0] -
                                self._ping_seqs[-1] -
                                len(self._ping_seqs) + 1
                        ) / len(self._ping_seqs)
-                return self.PING_HAVE_STATS, (m, s, loss)
+                return self.PING_HAVE_STATS, (med, mad, mx, loss)
 
     @property
     def api(self):
@@ -671,8 +671,9 @@ class PY9Net(PY9Unit):
             'err_ping_fail': (bool, 'Pings fail with a particular status.'),
             'ping_fail_status': (str, 'Ping status line, if pings failing.'),
 
-            'ping_mean': (float, 'Mean ping time, ms.'),
-            'ping_std': (float, 'Ping standard dev, with outliers removed.'),
+            'ping_med': (float, 'Median ping time, ms.'),
+            'ping_mad': (float, 'Ping median absolute deviation.'),
+            'ping_max': (float, 'Ping max.'),
             'ping_loss': (float, 'Ping packet loss.')
         }
 
@@ -754,9 +755,10 @@ class PY9Net(PY9Unit):
                 out.update({'err_ping_loading': True})
             else:
                 out.update({
-                    'ping_mean': data[0],
-                    'ping_std': data[1],
-                    'ping_loss': data[2],
+                    'ping_med': data[0],
+                    'ping_mad': data[1],
+                    'ping_max': data[2],
+                    'ping_loss': data[3],
                 })
 
         return out
@@ -801,14 +803,20 @@ class PY9Net(PY9Unit):
         elif output.pop('err_ping_fail', False):
             return prefix + colorify(output['ping_fail_status'], ORANGE)
         else:
-            m, std, loss = \
-                output['ping_mean'], output['ping_std'], output['ping_loss']
+            m, std, mx, loss = \
+                output['ping_med'], output['ping_mad'], output['ping_max'],\
+                output['ping_loss']
 
-            m_str = colorize_float(m, 4, 1, [10., 20., 50., 100.])
-            std_str = colorize_float(std, 3, 1, [3., 9., 27., 81.])
-            loss_str = colorize_float(loss, 3, 1, [1e-6, 1e-3, 1e-2, 5e-2])
+            med_str = colorize_float(m, 4, 1, [10., 20., 50., 100.])
+            mad_str = colorize_float(std, 3, 1, [3., 9., 27., 81.])
+            max_str = colorize_float(mx, 3, 0, [20., 50., 100., 250.])
+            loss_str = colorize_float(
+                100 * loss, 4, 1, [1e-4, 1e-1, 1e-0, 5e-0])
 
-            return prefix + f'[m {m_str} ± {std_str} loss {loss_str}]'
+            return prefix + (
+                f'[med {med_str} mad {mad_str} max {max_str} ms] '
+                f'[loss {loss_str}%]'
+            )
 
     def format(self, output):
         if output.pop('is_pinging', False):

@@ -8,6 +8,7 @@ import traceback as trc
 from abc import abstractmethod
 from collections import Counter
 from shutil import which
+from statistics import median
 from sys import stderr, stdin, stdout
 from typing import Any, Counter as Ctr_t, Dict, Set, Tuple
 
@@ -402,3 +403,14 @@ def maybe_int(x):
         return int(x)
     except ValueError:
         return x
+
+
+def med_mad(xs):
+    """
+    Returns the median and median absolute deviation of the passed iterable.
+    """
+
+    med = median(xs)
+    mad = median(abs(x - med) for x in xs)
+
+    return med, mad
