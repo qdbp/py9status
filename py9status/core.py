@@ -7,10 +7,12 @@ import time
 import traceback as trc
 from abc import abstractmethod
 from collections import Counter
+from datetime import timedelta
+from math import floor, log10
 from shutil import which
 from statistics import median
 from sys import stderr, stdin, stdout
-from typing import Any, Counter as Ctr_t, Dict, Set, Tuple
+from typing import Any, Counter as Ctr_t, Dict, Set, Tuple, Union
 
 # base 16 tomorrow colors
 # https://chriskempson.github.io/base16/#tomorrow
@@ -396,6 +398,64 @@ def colorify(s, color):
 def colorize_float(val, length, prec, breakpoints):
     return colorify(
         f'{val:{length}.{prec}f}', get_color(val, breakpoints=breakpoints))
+
+
+def format_duration(val: Union[timedelta, float]) -> str:
+    """
+    Formats a duration in seconds in a human-readable way.
+
+    Has a fixed width of 9.
+    """
+
+    if isinstance(val, timedelta):
+        val = val.seconds + 1e-6 * val.microseconds
+
+    if val < 60:
+        if val < 1e-9:
+            unit = 'ps'
+            disp_val = val * 1e12
+        elif val < 1e-6:
+            unit = 'ns'
+            disp_val = val * 1e9
+        elif val < 1e-3:
+            unit = 'us'
+            disp_val = val * 1e6
+        elif val < 1.0:
+            unit = 'ms'
+            disp_val = val * 1e3
+
+        prec = max(0, 2 - floor(log10(disp_val)))
+
+        return f'  {disp_val: >3.{prec}f} {unit} '
+
+    # val (- [minute, four weeks)
+    elif 60 <= val < 3155760000:
+        if val < 3600:
+            fst, snd_s = divmod(val, 60)
+            snd = int(snd_s)
+            ufst, usnd = 'm', 's'
+        elif val < 86400:
+            fst, snd_s = divmod(val, 3600)
+            snd = int(snd_s / 60)
+            ufst, usnd = 'h', 'm'
+        elif val < 604800:
+            fst, snd_s = divmod(val, 86400)
+            snd = int(snd_s / 3600)
+            ufst, usnd = 'd', 'h'
+        elif val < 31557600:
+            fst, snd_s = divmod(val, 604800)
+            snd = int(snd_s / 86400)
+            ufst, usnd = 'w', 'd'
+        else:
+            fst, snd_s = divmod(val, 31557600)
+            snd = int(snd_s / 604800)
+            ufst, usnd = 'y', 'w'
+
+        return f'{int(fst): >2d} {ufst} {snd: >2d} {usnd}'
+
+    # XXX expand unto aeons
+    else:
+        return ' > 10 y  '
 
 
 def maybe_int(x):

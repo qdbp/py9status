@@ -7,6 +7,7 @@ from bisect import bisect
 from collections import deque
 from datetime import datetime as dtt
 from glob import glob
+from multiprocessing import cpu_count
 from re import findall
 from statistics import mean
 from threading import Event, Thread
@@ -14,20 +15,23 @@ from typing import Deque as dq_t, Dict, Tuple
 
 from .core import (BLUE, BROWN, CYAN, GREEN, GREY, ORANGE, PY9Unit, RED, VIOLET,
                    WHITE, colorify, colorize_float, get_color, maybe_int,
-                   mk_tcolor_str, med_mad)
+                   mk_tcolor_str, med_mad, format_duration)
 
 
 class PY9Time(PY9Unit):
     """
-    Outputs the current time.
-    Requires:
-        date
-
-    Output API:
-        's_datestr': date string formatted according to `fmt`
+    Displays the current time2
     """
 
-    # TODO: turn apis into a class member Enum
+    @property
+    def api(self):
+        return {
+            'datestr': (str, "Current datetime in unit's format"),
+            'uptime': (int, "Current uptime, in seconds"),
+            'loadavg_1': (float, "One minute load average [as in `uptime`]"),
+            'loadavg_5': (float, "Five minute load average [as in `uptime`]"),
+            'loadavg_10': (float, "Ten minute load average [as in `uptime`]"),
+        }
 
     def __init__(self, *args, fmt='%a %b %d %Y - %H:%M', **kwargs):
         """
@@ -37,14 +41,52 @@ class PY9Time(PY9Unit):
                 to something sensible.
         """
         self.fmt = fmt
-        super().__init__(*args, requires=['date'], **kwargs)
+        self.uptime_fn = "/proc/uptime"
+        self.loadavg_fn = "/proc/loadavg"
+
+        self._doing_uptime = True
+
+        _cpu_count = cpu_count()
+        self._load_color_scale =\
+            tuple(_cpu_count * x for x in [0.1, 0.25, 0.50, 0.75])
+
+        super().__init__(*args, **kwargs)
+
+    def _read_uptime(self):
+        with open(self.uptime_fn) as uf:
+            return float(uf.read().split(' ')[0])
+
+    def _read_loadavg(self):
+        with open(self.loadavg_fn) as lf:
+            return tuple(map(float, lf.read().split(' ')[:3]))
 
     def read(self):
         now = dtt.now()
-        return {'s_datestr': now.strftime(self.fmt)}
+        l1, l5, l10 = self._read_loadavg()
+
+        return {
+            'datestr': now.strftime(self.fmt),
+            'uptime': self._read_uptime(),
+            'loadavg_1': l1,
+            'loadavg_5': l5,
+            'loadavg_10': l10,
+        }
 
     def format(self, output):
-        return output['s_datestr']
+        if not self._doing_uptime:
+            return output['datestr']
+        else:
+            ut_s = format_duration(output['uptime'])
+            lss = [
+                colorize_float(
+                    output["loadavg_" + key], 3, 2, self._load_color_scale)
+                for key in ["1", "5", "10"]
+            ]
+
+            return f'uptime [{ut_s}] load [{lss[0]}/{lss[1]}/{lss[2]}]'
+
+    def handle_click(self, *args):
+        self._doing_uptime = not self._doing_uptime
 
 
 class PY9NVGPU(PY9Unit):
