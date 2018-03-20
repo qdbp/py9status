@@ -850,7 +850,7 @@ class PY9Net(PY9Unit):
                 output['ping_loss']
 
             med_str = colorize_float(m, 4, 1, [10., 20., 50., 100.])
-            mad_str = colorize_float(std, 3, 1, [3., 9., 27., 81.])
+            mad_str = colorize_float(std, 3, 1, [1., 3., 9., 27.])
             max_str = colorize_float(mx, 3, 0, [20., 50., 100., 250.])
             loss_str = colorize_float(
                 100 * loss, 4, 1, [1e-4, 1e-1, 1e-0, 5e-0])
