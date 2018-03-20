@@ -35,7 +35,10 @@ CHUNK_DEFAULTS = {
     'markup': 'pango',
     'border': DARK_GREY,
     'separator': 'false',
-    'separator_block_width': 0}
+    'separator_block_width': 0
+}
+
+LOOP = aio.get_event_loop()
 
 
 def process_chunk(unit: "PY9Unit", chunk, padding, **kwargs):
@@ -117,7 +120,6 @@ class PY9Status:
 
         self.fail = ''
         names: Set[str] = set()
-        self.loop = aio.get_event_loop()
 
         for u in units:
             if u.name not in names:
@@ -170,7 +172,7 @@ class PY9Status:
         rt = aio.StreamReader()
         rp = aio.StreamReaderProtocol(rt)
 
-        await self.loop.connect_read_pipe(lambda: rp, stdin)
+        await LOOP.connect_read_pipe(lambda: rp, stdin)
 
         # we can get by without a json parser for this stream, carefully...
         # "burn" the opening [\n or ,\n
@@ -207,7 +209,7 @@ class PY9Status:
             while True:
                 time.sleep(1e9)
 
-        aio.ensure_future(self.read_clicks(), loop=self.loop)
+        aio.ensure_future(self.read_clicks(), loop=LOOP)
         for unit in self.units:
             aio.ensure_future(
                 unit.main_loop(
@@ -215,11 +217,11 @@ class PY9Status:
                     self.padding,
                     self.chunk_kwargs
                 ),
-                loop=self.loop,
+                loop=LOOP,
             )
         aio.ensure_future(self.line_writer())
 
-        self.loop.run_forever()
+        LOOP.run_forever()
 
 
 class PY9Unit:
@@ -388,6 +390,11 @@ def pangofy(s, **kwargs):
 
 def colorify(s, color):
     return pangofy(s, color=color)
+
+
+def colorize_float(val, length, prec, breakpoints):
+    return colorify(
+        f'{val:{length}.{prec}f}', get_color(val, breakpoints=breakpoints))
 
 
 def maybe_int(x):

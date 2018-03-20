@@ -1,3 +1,6 @@
+import os
+import re
+import subprocess as sbp
 import time
 from atexit import register as exreg
 from bisect import bisect
@@ -5,25 +8,25 @@ from collections import deque
 from datetime import datetime as dtt
 from glob import glob
 from re import findall
-from statistics import mean
-from subprocess import check_output
-from typing import Deque as Deque_t, Dict, Tuple
+from statistics import mean, stdev
+from threading import Event, Thread
+from typing import Deque as dq_t, Dict, Tuple
 
 from .core import (BLUE, BROWN, CYAN, GREEN, GREY, ORANGE, PY9Unit, RED, VIOLET,
-                   WHITE, colorify, get_color, maybe_int,
-                   mk_tcolor_str, )  # noqa \
+                   WHITE, colorify, colorize_float, get_color, maybe_int,
+                   mk_tcolor_str, )
 
 
 class PY9Time(PY9Unit):
     """
     Outputs the current time.
-
     Requires:
         date
 
     Output API:
         's_datestr': date string formatted according to `fmt`
     """
+
     # TODO: turn apis into a class member Enum
 
     def __init__(self, *args, fmt='%a %b %d %Y - %H:%M', **kwargs):
@@ -62,7 +65,7 @@ class PY9NVGPU(PY9Unit):
         super().__init__(*args, requires=['nvidia-smi'], **kwargs)
 
     def read(self):
-        raw = check_output(['nvidia-smi']).decode('ascii')
+        raw = sbp.check_output(['nvidia-smi']).decode('ascii')
         line = raw.split('\n')[8]
 
         temp_C = int(findall('(?<= )[0-9]{2,3}(?=C )', line)[0])
@@ -71,10 +74,12 @@ class PY9NVGPU(PY9Unit):
         mem_pct = int(100 * mem_mib / mem_tot)
         load_pct = int(findall('[0-9]+(?=% +Def)', line)[0])
 
-        return {'i_mem_mib': mem_mib,
-                'i_mem_pct': mem_pct,
-                'i_load_pct': load_pct,
-                'i_temp_C': temp_C}
+        return {
+            'i_mem_mib': mem_mib,
+            'i_mem_pct': mem_pct,
+            'i_load_pct': load_pct,
+            'i_temp_C': temp_C
+        }
 
     def format(self, output):
         mm = output['i_mem_mib']
@@ -111,10 +116,9 @@ class PY9CPU(PY9Unit):
         # to make sure that cpuinfo is updated at least once on read
         time.sleep(0.01)
 
-        self._us: Deque_t[float] = deque([], maxlen=int(2 / self.poll_interval))
-        self._ks: Deque_t[float] = deque([], maxlen=int(2 / self.poll_interval))
-        self._temps: Deque_t[int] = deque([],
-                                          maxlen=int(2 / self.poll_interval))
+        self._us: dq_t[float] = deque([], maxlen=int(2 / self.poll_interval))
+        self._ks: dq_t[float] = deque([], maxlen=int(2 / self.poll_interval))
+        self._temps: dq_t[int] = deque([], maxlen=int(2 / self.poll_interval))
 
     @property
     def api(self):
@@ -133,8 +137,6 @@ class PY9CPU(PY9Unit):
         return sum(comps), comps[0] + comps[1], comps[2]
 
     def read(self):
-        # TODO: implement smoothing
-
         tt, tu, tk = self._read_cpu_times()
         dtt = tt - self.tt0
         dtu = tu - self.tu0
@@ -148,8 +150,7 @@ class PY9CPU(PY9Unit):
 
         temp = 0.
         n_cores = 0
-        # assume this exists
-        # XXX modernize
+        # XXX assumes this exists
         for fn in glob('/sys/class/thermal/thermal_zone*/temp'):
             with open(fn, 'r') as f:
                 try:
@@ -182,9 +183,9 @@ class PY9CPU(PY9Unit):
 
         if self.show_breakdown:
             load_str = 'u ' + colorify(f'{pu:3.0f}', get_color(pu)) + \
-                '% k' + colorify(f'{pk:3.0f}', get_color(pk)) + '%'
+                       '% k' + colorify(f'{pk:3.0f}', get_color(pk)) + '%'
         else:
-            load_str =\
+            load_str = \
                 'load ' + colorify(f'{pu + pk:3.0f}%', get_color(pu + pk))
 
         return 'cpu [' + load_str + '] [temp ' + tcolor_str + 'C]'
@@ -219,7 +220,6 @@ class PY9Mem(PY9Unit):
         }
 
     def read(self):
-
         self.f_mem.seek(0)
         memlines = self.f_mem.readlines()
         m_tot_kib = int(memlines[0].split(' ')[-2])
@@ -264,7 +264,6 @@ class PY9Bat(PY9Unit):
         'b_error_unknown_format': True if the battery's uevent could be read
             but had an unrecognized format.
     """
-    # TODO: add more; e.g. full/design full, etc.
 
     STATUS_DIS = 0
     STATUS_CHR = 1
@@ -288,8 +287,8 @@ class PY9Bat(PY9Unit):
         self._clicked = False
         self._cur_status = None
 
-        self.P_hist: Deque_t[float] = deque([],
-                                            maxlen=int(10 / self.poll_interval))
+        self.P_hist: dq_t[float] = deque([],
+                                         maxlen=int(10 / self.poll_interval))
 
         self.f_uevent = open(f'/sys/class/power_supply/BAT{bat_id}/uevent')
         exreg(self.f_uevent.close)
@@ -512,7 +511,7 @@ class PY9Wireless(PY9Unit):
     def read(self):
         # Future: read stats from /proc/net/wireless?
         # Raw
-        out = check_output(['iwconfig', self.wlan_if]).decode('ascii')
+        out = sbp.check_output(['iwconfig', self.wlan_if]).decode('ascii')
         # line1 = out.split('\n')[0]
 
         # Status
@@ -552,31 +551,154 @@ class PY9Net(PY9Unit):
     Monitor bytes sent and received per unit time on a network interface.
     """
 
-    def __init__(self, i_f, *args, **kwargs):
+    class Pinger:
+        """
+        Class providing a simple interface to the system ping command.
+
+        Spawns a ping process in a background thread and provides a method to
+        query its output in a cleaned form.
+        """
+
+        PING_TIMEOUT = 0
+        PING_LOADING = 1
+        PING_HAVE_STATUS = 2
+        PING_HAVE_STATS = 3
+
+        RE_PING_STATS = re.compile(
+            r'icmp_seq=([0-9]+) ttl=[0-9]+ time=([0-9]+(?:\.[0-9]+)?) ms'
+        )
+
+        def __init__(self, server, interface, buflen=100, timeout=5.0):
+            """
+            Args:
+                server: the server to ping
+                interface: the interface to ping on
+                buflen: length of statistics buffer to keep
+                timeout: time to wait before returning a "pings dropped" message
+            """
+            self.server = server
+            self.interface = interface
+            self.buflen = buflen
+            self.timeout = timeout
+
+            self._halt = Event()
+            self._proc = None
+            self._pipefile = None
+            self._thread = None
+
+            self._ping_rtts = deque([], maxlen=buflen)
+            self._ping_seqs = deque([], maxlen=buflen)
+            self._ping_status = None
+            self._ping_last_response = None
+
+        def _parse_ping_into_bufs(self, line):
+            stats = self.RE_PING_STATS.findall(line)
+            if stats:
+                self._ping_rtts.appendleft(float(stats[0][1]))
+                self._ping_seqs.appendleft(int(stats[0][0]))
+                self._ping_status = None
+                return
+            else:
+                self._ping_status = line.strip()
+
+        def _read_loop(self):
+            # burn header line
+            self._pipefile.readline()
+
+            while not self._halt.is_set():
+                self._parse_ping_into_bufs(self._pipefile.readline())
+                self._ping_last_response = time.time()
+
+        def start(self):
+            if self._ping_last_response is not None:
+                raise NotImplementedError(
+                    "Instantiate a new Pinger to reset state.")
+
+            self._ping_last_response = time.time()
+
+            _read_pipe, _write_pipe = os.pipe()
+
+            self._proc = sbp.Popen(
+                ['ping', '-I', self.interface, '-i', '0.33', self.server],
+                stdout=_write_pipe, stderr=_write_pipe, shell=False,
+            )
+            self._pipefile = os.fdopen(_read_pipe)
+            self._thread = Thread(daemon=True, target=self._read_loop)
+            self._thread.start()
+
+        def stop(self):
+            self._halt.set()
+            self._pipefile.close()
+            # NOTE os.kill hangs
+            # reap the zombie like this
+            self._proc.wait()
+
+        def poll(self):
+            if time.time() - self._ping_last_response > self.timeout:
+                return self.PING_TIMEOUT, None
+
+            elif self._ping_status is not None:
+                return self.PING_HAVE_STATUS, self._ping_status
+
+            elif len(self._ping_seqs) < 3:
+                return self.PING_LOADING, None
+
+            else:
+                m = mean(self._ping_rtts)
+                s = stdev(self._ping_rtts)
+                loss = (
+                               self._ping_seqs[0] -
+                               self._ping_seqs[-1] -
+                               len(self._ping_seqs) + 1
+                       ) / len(self._ping_seqs)
+                return self.PING_HAVE_STATS, (m, s, loss)
+
+    @property
+    def api(self):
+        return {
+            'err_if_down': (bool, 'The named interface is down.'),
+            'err_if_gone': (bool, 'The named interface does not exist.'),
+            'err_if_loading': (bool, 'Currently loading statistics for the '
+                                     'interface.'),
+
+            'Bps_down': (float, 'Bytes per second, ingress'),
+            'Bps_up': (float, 'Bytes per second, egress'),
+
+            'is_pinging': (bool, 'Currently pinging.'),
+
+            'err_ping_loading': (bool, 'Ping stats are loading.'),
+            'err_ping_timeout': (bool, 'No pings come back within timeout.'),
+            'err_ping_fail': (bool, 'Pings fail with a particular status.'),
+            'ping_fail_status': (str, 'Ping status line, if pings failing.'),
+
+            'ping_mean': (float, 'Mean ping time, ms.'),
+            'ping_std': (float, 'Ping standard dev, with outliers removed.'),
+            'ping_loss': (float, 'Ping packet loss.')
+        }
+
+    def __init__(self, interface, *args, ping_server='8.8.8.8', **kwargs):
         """
         Args:
-            i_f:
-                the interface name
-            smooth:
-                int, number of samples to average over for boxcar filter
+            interface: the interface name
         """
 
         super().__init__(*args, **kwargs)
-        self.i_f = i_f
+        self.interface = interface
+        self.ping_server = ping_server
 
         # FIXME we can in principle keep these files open, we just need
         # special exception handing for cases when the interface goes down
         # and then back up
-        self.rx_file = f'/sys/class/net/{i_f}/statistics/rx_bytes'
-        self.tx_file = f'/sys/class/net/{i_f}/statistics/tx_bytes'
-        self.operfile = f'/sys/class/net/{i_f}/operstate'
+        self.rx_file = f'/sys/class/net/{interface}/statistics/rx_bytes'
+        self.tx_file = f'/sys/class/net/{interface}/statistics/tx_bytes'
+        self.operfile = f'/sys/class/net/{interface}/operstate'
 
-        self._rx_dq: Deque_t[int] = deque([],
-                                          maxlen=int(2 / self.poll_interval))
-        self._tx_dq: Deque_t[int] = deque([],
-                                          maxlen=int(2 / self.poll_interval))
-        self._time_dq: Deque_t[int] = deque([],
-                                            maxlen=int(2 / self.poll_interval))
+        self._rx_dq: dq_t[int] = deque([], maxlen=int(2 / self.poll_interval))
+        self._tx_dq: dq_t[int] = deque([], maxlen=int(2 / self.poll_interval))
+        self._time_dq: dq_t[int] = deque(
+            [], maxlen=int(2 / self.poll_interval))
+
+        self.pinger = None
 
     def _get_rx_tx(self):
         with open(self.rx_file, 'r') as f:
@@ -584,17 +706,6 @@ class PY9Net(PY9Unit):
         with open(self.tx_file, 'r') as f:
             tx = int(f.read())
         return rx, tx
-
-    @property
-    def api(self):
-        return {
-            'err_if_down': (bool, 'The named interface is down.'),
-            'err_if_gone': (bool, 'The named interface does not exist.'),
-            'err_if_loading':
-                (bool, 'Currently loading statistics for the interface'),
-            'Bps_down': (float, 'Bytes per second, ingress'),
-            'Bps_up': (float, 'Bytes per second, egress'),
-        }
 
     def read(self):
         try:
@@ -613,8 +724,10 @@ class PY9Net(PY9Unit):
         self._tx_dq.append(tx)
         self._time_dq.append(time.time())
 
-        if self._time_dq[0] is None:
-            return {'err_if_loading': True}
+        out = {}
+
+        if len(self._time_dq) < 2:
+            out.update({'err_if_loading': True})
         else:
             dt = self._time_dq[-1] - self._time_dq[0]
             rxd = self._rx_dq[-1] - self._rx_dq[0]
@@ -623,13 +736,33 @@ class PY9Net(PY9Unit):
             rxr = rxd / dt
             txr = txd / dt
 
-            return {
+            out.update({
                 'Bps_down': rxr,
                 'Bps_up': txr,
-            }
+            })
 
-    def format(self, output):
-        prefix = f'net {self.i_f} '
+        if self.pinger is not None:
+            out.update({'is_pinging': True})
+
+            status, data = self.pinger.poll()
+
+            if status == self.pinger.PING_TIMEOUT:
+                out.update({'err_ping_timeout': True})
+            elif status == self.pinger.PING_HAVE_STATUS:
+                out.update({'err_ping_fail': True, 'ping_fail_status': data})
+            elif status == self.pinger.PING_LOADING:
+                out.update({'err_ping_loading': True})
+            else:
+                out.update({
+                    'ping_mean': data[0],
+                    'ping_std': data[1],
+                    'ping_loss': data[2],
+                })
+
+        return out
+
+    def _format_bw(self, output):
+        prefix = f'net {self.interface} '
 
         if output.pop('err_if_gone', False):
             return prefix + colorify('gone', RED)
@@ -640,20 +773,62 @@ class PY9Net(PY9Unit):
 
         sfs = [colorify('B/s', GREY), colorify('B/s', GREY)]
         vals = [output['Bps_down'], output['Bps_up']]
+
         for ix in range(2):
-            for mag, sf in [(30, colorify('G/s', VIOLET)),
+            for mag, sf in [
+                (30, colorify('G/s', VIOLET)),
                 (20, colorify('M/s', WHITE)),
-                            (10, 'K/s')]:
+                (10, 'K/s')
+            ]:
                 if vals[ix] > 1 << mag:
                     vals[ix] /= 1 << mag
                     sfs[ix] = sf
                     break
 
         return (
-            prefix +
-            f'[u {vals[1]:6.1f} {sfs[1]:>3s}] ' +
-            f'[d {vals[0]:6.1f} {sfs[0]:>3s}]'
+                prefix +
+                f'[u {vals[1]:6.1f} {sfs[1]:>3s}] ' +
+                f'[d {vals[0]:6.1f} {sfs[0]:>3s}]'
         )
+
+    def _format_ping(self, output):
+        prefix = f'net {self.interface} [ping {self.ping_server}] '
+
+        if output.pop('err_ping_timeout', False):
+            return prefix + colorify('timed out', RED)
+        elif output.pop('err_ping_loading', False):
+            return prefix + colorify('loading', VIOLET)
+        elif output.pop('err_ping_fail', False):
+            return prefix + colorify(output['ping_fail_status'], ORANGE)
+        else:
+            m, std, loss = \
+                output['ping_mean'], output['ping_std'], output['ping_loss']
+
+            m_str = colorize_float(m, 4, 1, [10., 20., 50., 100.])
+            std_str = colorize_float(std, 3, 1, [3., 9., 27., 81.])
+            loss_str = colorize_float(loss, 3, 1, [1e-6, 1e-3, 1e-2, 5e-2])
+
+            return prefix + f'[m {m_str} ± {std_str} loss {loss_str}]'
+
+    def format(self, output):
+        if output.pop('is_pinging', False):
+            return self._format_ping(output)
+        else:
+            return self._format_bw(output)
+
+    def handle_click(self, *args):
+        if self.pinger is None:
+            self._start_ping()
+        else:
+            self._stop_ping()
+
+    def _start_ping(self):
+        self.pinger = self.Pinger(self.ping_server, self.interface)
+        self.pinger.start()
+
+    def _stop_ping(self):
+        self.pinger.stop()
+        self.pinger = None
 
 
 class PY9Disk(PY9Unit):
@@ -694,7 +869,7 @@ class PY9Disk(PY9Unit):
 
         best = None
         best_len = -1
-        
+
         for cand in candidates:
             base = cand.split('/')[-1]
             if self.disk.startswith(base) and len(base) > best_len:
