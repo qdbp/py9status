@@ -35,6 +35,6 @@ In addition to in-string display styles and colours, which are controlled by `un
 
 ## Installation
 
-- 1) put `py9core.py` and `py9s_default_units.py` in your PYTHONPATH
+- 1) put `py9core.py` and `py9s_default_units.py` in your PYTHONPATH. `pip install --user` on this repo is the best way to achieve this.
 - 2) put a copy of `run_py9s.py` in your PATH and configure i3 to run it with `status_command run_py9s.py` in your config. For the default units to work out of the box, enable pango formatting.
-- 3) edit `run_py9s.py` to configure the output. Write your own units, or butcher the defaults. This file's format remains stable, and updates to py9status should not necessiate changes.
+- 3) edit `run_py9s.py` to configure the output. Important entries to change are the network and drive names.
