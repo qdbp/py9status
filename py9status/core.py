@@ -249,7 +249,9 @@ class PY9Unit:
 
     name_resolver: Ctr_t[str] = Counter()
 
-    def __init__(self, name=None, poll_interval=0.33, requires=None) -> None:
+    def __init__(
+            self, name=None, poll_interval=0.33, requires=None,
+            **kwargs) -> None:
         """
         Args:
             name:
@@ -283,6 +285,11 @@ class PY9Unit:
         self.name = name
 
         self.poll_interval = poll_interval
+        # backwards compatibility
+        if 'ival' in kwargs:
+            self.poll_interval = kwargs.pop('ival')
+        if kwargs:
+            raise ValueError(f'Got unknown arguments {kwargs.keys()}!')
 
         self.transient_overrides: Dict[str, str] = {}
         self.permanent_overrides: Dict[str, str] = {}
