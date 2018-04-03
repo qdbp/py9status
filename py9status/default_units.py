@@ -44,7 +44,7 @@ class PY9Time(PY9Unit):
         self.uptime_fn = "/proc/uptime"
         self.loadavg_fn = "/proc/loadavg"
 
-        self._doing_uptime = True
+        self._doing_uptime = False
 
         _cpu_count = cpu_count()
         self._load_color_scale =\
