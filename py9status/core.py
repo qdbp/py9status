@@ -430,10 +430,13 @@ def format_duration(val: Union[timedelta, float]) -> str:
         elif val < 1.0:
             unit = 'ms'
             disp_val = val * 1e3
+        else:
+            unit = 's '
+            disp_val = val
 
         prec = max(0, 2 - floor(log10(disp_val)))
 
-        return f'  {disp_val: >3.{prec}f} {unit} '
+        return f' {disp_val: >4.{prec}f} {unit} '
 
     # val (- [minute, four weeks)
     elif 60 <= val < 3155760000:
