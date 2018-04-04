@@ -288,23 +288,7 @@ class PY9Mem(PY9Unit):
 
 class PY9Bat(PY9Unit):
     """
-    outputs battery usage and charging status
-
-    Output API:
-        'b_chr': True if charging
-        'b_dis': True if discharging
-        'b_bal': True if balanced, not full (plugged in, no net inflow)
-        'b_full': True if full
-        'i_min_rem': minutes until (dis)charged, -1 if infinite
-        'f_chr_pct': percentage charge of battery with respect to current full
-         capacity
-        'f_chr_pct_design': with respect to design capacity
-
-    Error API:
-        'b_error_no_bat': True if the battery with the given ID can't be found,
-            or more precisely, if the uevent file cannot be read found
-        'b_error_unknown_format': True if the battery's uevent could be read
-            but had an unrecognized format.
+    Shows battery usage and charging status.
     """
 
     STATUS_DIS = 0
@@ -393,21 +377,13 @@ class PY9Bat(PY9Unit):
                 I = ued['current_now'] / 1e6
                 P = I * V
 
-                # assume V(Q) is linear, V(0) = Vmin
-                # then Vmxd = Vmin + (Qmxd / Q) * (V - Vmin)
-                # then Emxd = Qmx * (V0 + Vmx) / 2
-
-                # NOTE could build a more sophisticated statistical model for
-                # V(Q), but that seems needlessly complicated
-
-                Vmx = V * (Qmx / Q)
+                # assume V(Q) is linear, V(0) = Vmin, then
+                Vmx = Vmn + Qmx * (V - Vmn) / Q
+                Vmxd = Vmn + Qmxd * (V - Vmn) / Q
+                # and, integrating E(q)dq,
+                E = Q * (Vmn + V) / 2
                 Emx = Qmx * (Vmn + Vmx) / 2
-
-                Vmxd = V * (Qmxd / Q)
                 Emxd = Qmxd * (Vmn + Vmxd) / 2
-
-                # E(Q), integrating the assumed linear relationship
-                E = Q * (Vmn + Q * (Vmxd - Vmn) / (2 * Qmxd))
 
             else:
                 # XXX test these on different models
