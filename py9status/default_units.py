@@ -1,13 +1,14 @@
 import time
-from bisect import bisect
 from atexit import register as exreg
+from bisect import bisect
 from collections import deque
 from datetime import datetime as dtt
 from glob import glob
-from statistics import mean
 from re import findall
+from statistics import mean
 from subprocess import check_output
-from typing import Deque as Deque_t, Tuple
+from typing import Deque as Deque_t
+from typing import Tuple
 
 from .core import (BASE00, BASE0A, BASE0B, BASE0C, BASE0D, BASE0E,  # noqa \
                    BASE0F, BASE01, BASE02, BASE03, BASE04, BASE05, BASE06,
@@ -133,8 +134,6 @@ class PY9CPU(PY9Unit):
         return sum(comps), comps[0] + comps[1], comps[2]
 
     def read(self):
-        # TODO: implement smoothing
-
         tt, tu, tk = self._read_cpu_times()
         dtt = tt - self.tt0
         dtu = tu - self.tu0
@@ -156,7 +155,7 @@ class PY9CPU(PY9Unit):
                     temp += float(f.read()) / 1000
                     n_cores += 1
                 except Exception:
-                    temp = None  # type: ignore
+                    pass
 
         if temp is not None:
             temp /= n_cores
