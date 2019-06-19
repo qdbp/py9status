@@ -152,8 +152,10 @@ class PY9CPU(PY9Unit):
         for fn in glob('/sys/class/thermal/thermal_zone*/temp'):
             with open(fn, 'r') as f:
                 try:
-                    temp += float(f.read()) / 1000
-                    n_cores += 1
+                    this_temp = float(f.read()) / 1000
+                    if this_temp > 0:
+                        temp += this_temp
+                        n_cores += 1
                 except Exception:
                     pass
 
