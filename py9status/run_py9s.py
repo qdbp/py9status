@@ -22,17 +22,18 @@ def main():
     units = [
         # uncomment if you have an nvidia GPU
         # PY9NVGPU(ival=5.),
-        PY9Mem(ival=3.),
+        PY9Mem(ival=3.0),
         PY9CPU(),
-        PY9Net('vpn-ca', name='net_vpn'),
+        PY9Net("vpn-ca", name="net_vpn"),
         # uncomment for laptop users
         # PY9Wireless("wlan_id", ival=5.),
         # PY9Bat(ival=5.),
-        PY9Time(ival=0.7)
+        PY9Time(ival=0.7),
     ]
 
     py9s = PY9Status(units)
     py9s.run()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
