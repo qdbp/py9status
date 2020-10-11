@@ -1,7 +1,9 @@
 #! /usr/bin/python
+from typing import NoReturn
 
 from py9status.core import PY9Status
 from py9status.default_units import *
+
 
 # you can write your own units! it's recommended to use a separate
 # file, which you then import as:
@@ -13,7 +15,7 @@ from py9status.default_units import *
 # feel free to implement more complicated loading logic!
 
 
-def main():
+def main() -> NoReturn:
     # common unit kwargs:
     # ival= the target interval between unit updates
     # name= the unit name reported to i3bar
@@ -22,17 +24,18 @@ def main():
     units = [
         # uncomment if you have an nvidia GPU
         # PY9NVGPU(ival=5.),
-        PY9Mem(ival=3.),
+        PY9Mem(ival=3.0),
         PY9CPU(),
-        PY9Net('vpn-ca', name='net_vpn'),
+        PY9Net("vpn-ca", name="net_vpn"),
         # uncomment for laptop users
         # PY9Wireless("wlan_id", ival=5.),
         # PY9Bat(ival=5.),
-        PY9Time(ival=0.7)
+        PY9Time(ival=0.7),
     ]
 
     py9s = PY9Status(units)
     py9s.run()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

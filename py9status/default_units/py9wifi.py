@@ -1,0 +1,67 @@
+import subprocess as sbp
+from re import findall
+
+from py9status.core import PY9Unit, RED, VIOLET, color, get_color
+from py9status.default_units import DSA
+
+
+class PY9Wireless(PY9Unit):
+    """
+    Monitors wireless network information.
+    """
+
+    def __init__(self, wlan_if: str, *args, **kwargs) -> None:
+        """
+        Args:
+            wlan_if: name of the wireless interface to monitor.
+        """
+
+        self.wlan_if = wlan_if
+        super().__init__(*args, requires=["iwconfig"], **kwargs)
+
+    async def read(self) -> DSA:
+        """
+        Returns: dict:
+            "ssid": (str, "SSID of the connected network."),
+            "quality": (float, "Connection quality, from 0 to 1."),
+            "err_down": (bool, "True if the wireless interface is down."),
+            "err_disconnected": (
+                bool,
+                "True if there is no network connection.",
+
+        """
+        # Future: read stats from /proc/net/wireless?
+        # Raw
+        out = sbp.check_output(["iwconfig", self.wlan_if]).decode("ascii")
+        # line1 = out.split('\n')[0]
+
+        # Status
+        # No device detected case
+        if "No such device" in out:  # if not connected: 'No such device'
+            return {"err_down": True}
+        # Not connected case
+
+        if "off/any" in out:  # if not connected: 'ESSID:off/any'
+            return {"err_disconnected": True}
+
+        # Raw output data
+        raw_ssid = findall('ESSID:"(.*?)"', out)[0]
+
+        n, d = findall(r"Link Quality=(\d+)/(\d+)", out)[0]
+        quality = float(n) / float(d)
+
+        return {"ssid": raw_ssid, "quality": quality}
+
+    def format(self, output: DSA) -> str:
+        prefix = "wlan {} [".format(self.wlan_if)
+        suffix = "]"
+        if output.pop("err_down", False):
+            return prefix + color("down", RED) + suffix
+        elif output.pop("err_disconnected", False):
+            return prefix + color("---", VIOLET) + suffix
+        else:
+            template = prefix + "{}] [{}%" + suffix
+            quality = 100 * output["quality"]
+            q_color = get_color(quality, do_reverse=True)
+            q_str = color("{:3.0f}".format(quality), q_color)
+            return template.format(output["ssid"], q_str)

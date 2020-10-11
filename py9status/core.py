@@ -1,4 +1,5 @@
 #! /usr/bin/python
+from __future__ import annotations
 
 import asyncio as aio
 import bisect
@@ -9,90 +10,56 @@ from abc import abstractmethod
 from collections import Counter
 from datetime import timedelta
 from math import floor, log10
+from numbers import Real
 from shutil import which
 from statistics import median
 from sys import stderr, stdin, stdout
-from typing import Any, Counter as Ctr_t, Dict, Set, Tuple, Union
+from typing import (
+    Any,
+    Counter as Ctr_t,
+    Dict,
+    Iterable,
+    NoReturn,
+    Optional,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
+
+from fastcache import lru_cache
+
+T = TypeVar("T")
+N = TypeVar("N", int, float)
 
 # base 16 tomorrow colors
 # https://chriskempson.github.io/base16/#tomorrow
 
-NEAR_BLACK = '#1D1F21'
-DARKER_GREY = '#282A2E'
-DARK_GREY = '#373B41'
-GREY = '#969896'
-LIGHT_GREY = '#B4B7B4'
-LIGHTER_GREY = '#C5C8C6'
-NEAR_WHITE = '#E0E0E0'
-WHITE = '#FFFFFF'
-RED = '#CC6666'
-ORANGE = '#DE935F'
-YELLOW = '#F0C674'
-GREEN = '#B5BD68'
-CYAN = '#8ABEB7'
-BLUE = '#81A2BE'
-VIOLET = '#B294BB'
-BROWN = '#A3685A'
+NEAR_BLACK = "#1D1F21"
+DARKER_GREY = "#282A2E"
+DARK_GREY = "#373B41"
+GREY = "#969896"
+LIGHT_GREY = "#B4B7B4"
+LIGHTER_GREY = "#C5C8C6"
+NEAR_WHITE = "#E0E0E0"
+WHITE = "#FFFFFF"
+RED = "#CC6666"
+ORANGE = "#DE935F"
+YELLOW = "#F0C674"
+GREEN = "#B5BD68"
+CYAN = "#8ABEB7"
+BLUE = "#81A2BE"
+VIOLET = "#B294BB"
+BROWN = "#A3685A"
 
 CHUNK_DEFAULTS = {
-    'markup': 'pango',
-    'border': DARK_GREY,
-    'separator': 'false',
-    'separator_block_width': 0
+    "markup": "pango",
+    "border": DARK_GREY,
+    "separator": "false",
+    "separator_block_width": 0,
 }
 
 LOOP = aio.get_event_loop()
-
-
-def process_chunk(unit: "PY9Unit", chunk, padding, **kwargs):
-    # TODO: short_text support
-    """
-    Generates a JSON string snippet corresponding to the output one i3bar
-    unit.
-
-    Args:
-        chunk:
-            A string, the `full_text` of the unit's output, or `None`.
-        padding:
-            number of spaces to add at the beginning and end of each unit's
-            text
-        kwargs:
-            any valid i3bar input API keyword. Takes precedence over
-            default values.
-
-    Returns:
-        a string containing JSON output expected by the i3bar API for a single
-        bar element.
-
-    Will override defaults with, in decreasing order of precedence,
-        `unit.transient_overrides` (which will be cleared after)
-        `unit.permanent_overrides` (which, naturally, will not)
-        kwargs ("global" overrides set in the control loop)
-    """
-
-    # chunks can return None to signify no output
-    if chunk is None:
-        return ''
-
-    chunk = {'full_text': chunk}
-
-    # change some defaults:
-    chunk.update(CHUNK_DEFAULTS)
-
-    # set the name
-    chunk.update({'name': unit.name})
-
-    # apply any global (kwarg) overrides
-    chunk.update(kwargs)
-    # apply any unit-set overrides
-    chunk.update(unit.permanent_overrides)
-    # transient overrides take precedence
-    chunk.update(unit.transient_overrides)
-    unit.transient_overrides.clear()
-
-    chunk['full_text'] = ' ' * padding + chunk['full_text'] + ' ' * padding
-
-    return json.dumps(chunk)
 
 
 class PY9Status:
@@ -104,7 +71,9 @@ class PY9Status:
     value
     """
 
-    def __init__(self, units, min_sleep=0.1, padding=1, chunk_kwargs=None):
+    def __init__(
+        self, units, min_sleep=0.1, padding=1, chunk_kwargs=None
+    ) -> None:
         """
         units:
             list of PY9Unit units to poll. their ordering in the list will
@@ -121,7 +90,7 @@ class PY9Status:
             individual basis. see PY9Unit.
         """
 
-        self.fail = ''
+        self.fail = ""
         names: Set[str] = set()
 
         for u in units:
@@ -129,10 +98,14 @@ class PY9Status:
                 names.add(u.name)
                 continue
             self.fail = json.dumps(
-                {'full_text': colorify('GLOBAL FAILURE: duplicate unit name %s'
-                                       % u.name, '#FF0000'),
-                    'markup': 'pango'
-                })
+                {
+                    "full_text": color(
+                        "GLOBAL FAILURE: duplicate unit name %s" % u.name,
+                        "#FF0000",
+                    ),
+                    "markup": "pango",
+                }
+            )
             break
 
         self.units = units
@@ -148,30 +121,26 @@ class PY9Status:
         self.min_sleep = min_sleep
 
         self.unit_outputs = {
-            u.name: process_chunk(
-                u,
-                colorify('unit "%s" loading' % u.name, VIOLET),
+            u.name: u.process_chunk(
+                color('unit "%s" loading' % u.name, VIOLET),
                 self.padding,
-                **self.chunk_kwargs
+                **self.chunk_kwargs,
             )
             for u in self.units
         }
 
-    def write_status_line(self):
+    def write_status_line(self) -> None:
         """
         Aggregates all units' output into a single string status line and
         writes it.
         """
-        o = []
-        for u in self.units:
-            chunk_json = self.unit_outputs[u.name]
-            if chunk_json:
-                o.append(chunk_json)
 
-        stdout.write('[' + ','.join(o) + '],\n')
+        o = [self.unit_outputs[u.name] for u in self.units]
+        stdout.write("[" + ",".join(it for it in o if it is not None) + "],\n")
         stdout.flush()
 
-    async def read_clicks(self):
+    async def read_clicks(self) -> NoReturn:
+
         rt = aio.StreamReader()
         rp = aio.StreamReaderProtocol(rt)
 
@@ -183,20 +152,20 @@ class PY9Status:
 
         while True:
             try:
-                raw = await rt.readuntil(b'}')
+                raw = await rt.readuntil(b"}")
                 click = json.loads(raw)
-                self.units_by_name[click.pop('name')].handle_click(click)
+                self.units_by_name[click.pop("name")].handle_click(click)
                 # burn the comma
-                await rt.readuntil(b',')
-            except Exception:
+                await rt.readuntil(b",")
+            finally:
                 continue
 
-    async def line_writer(self):
+    async def line_writer(self) -> NoReturn:
         while True:
             self.write_status_line()
             await aio.sleep(self.min_sleep)
 
-    def run(self) -> None:
+    def run(self) -> NoReturn:
         """
         The main control loop.
         """
@@ -206,7 +175,7 @@ class PY9Status:
         stdout.flush()
 
         if self.fail:
-            stdout.write('[' + self.fail + '],\n')
+            stdout.write("[" + self.fail + "],\n")
             stdout.flush()
 
             while True:
@@ -216,9 +185,7 @@ class PY9Status:
         for unit in self.units:
             aio.ensure_future(
                 unit.main_loop(
-                    self.unit_outputs,
-                    self.padding,
-                    self.chunk_kwargs
+                    self.unit_outputs, self.padding, self.chunk_kwargs
                 ),
                 loop=LOOP,
             )
@@ -250,8 +217,8 @@ class PY9Unit:
     name_resolver: Ctr_t[str] = Counter()
 
     def __init__(
-            self, name=None, poll_interval=0.33, requires=None,
-            **kwargs) -> None:
+        self, name=None, poll_interval=0.33, requires=None, **kwargs
+    ) -> None:
         """
         Args:
             name:
@@ -281,15 +248,15 @@ class PY9Unit:
 
         name_ix = self.name_resolver[name]
         self.name_resolver[name] += 1
-        name += ('' if name_ix == 0 else f'_{name_ix}')
+        name += "" if name_ix == 0 else f"_{name_ix}"
         self.name = name
 
         self.poll_interval = poll_interval
         # backwards compatibility
-        if 'ival' in kwargs:
-            self.poll_interval = kwargs.pop('ival')
+        if "ival" in kwargs:
+            self.poll_interval = kwargs.pop("ival")
         if kwargs:
-            raise ValueError(f'Got unknown arguments {kwargs.keys()}!')
+            raise ValueError(f"Got unknown arguments {kwargs.keys()}!")
 
         self.transient_overrides: Dict[str, str] = {}
         self.permanent_overrides: Dict[str, str] = {}
@@ -297,47 +264,98 @@ class PY9Unit:
         if requires is not None:
             for req in requires:
                 if which(req) is None:
-                    self._get_chunk = \
-                        lambda: (self.name + ' [' +
-                                 colorify(req + ' not found', RED) +
-                                 ']')
+                    self._get_chunk = lambda: (
+                        self.name + " [" + color(req + " not found", RED) + "]"
+                    )
                     break
 
-        self._fail = False
+        self._fail: Optional[str] = None
 
-    async def main_loop(self, d_out, padding, chunk_kwargs):
+    def process_chunk(self, chunk: Optional[str], pad: int, **kwargs):
+        # TODO: short_text support
+        """
+        Generates a JSON string snippet corresponding to the output one i3bar
+        unit.
+
+        Args:
+            chunk:
+                A string, the `full_text` of the unit's output, or `None`.
+            pad:
+                number of spaces to add at the beginning and end of each unit's
+                text
+            kwargs:
+                any valid i3bar input API keyword. Takes precedence over
+                default values.
+
+        Returns:
+            a string containing JSON output expected by the i3bar API for a
+            single bar element.
+
+        Will override defaults with, in decreasing order of precedence,
+            `unit.transient_overrides` (which will be cleared after)
+            `unit.permanent_overrides` (which, naturally, will not)
+            kwargs ("global" overrides set in the control loop)
+        """
+
+        # chunks can return None to signify no output
+        if chunk is None:
+            return ""
+
+        out = {"full_text": chunk}
+
+        # change some defaults:
+        out.update(CHUNK_DEFAULTS)
+
+        # set the name
+        out.update({"name": self.name})
+
+        # apply any global (kwarg) overrides
+        out.update(kwargs)
+        # apply any unit-set overrides
+        out.update(self.permanent_overrides)
+        # transient overrides take precedence
+        out.update(self.transient_overrides)
+        self.transient_overrides.clear()
+
+        out["full_text"] = f"{' ' * pad}{out['full_text']}{' ' * pad}"
+
+        return json.dumps(out)
+
+    async def main_loop(
+        self, d_out: Dict[str, str], padding: int, chunk_kwargs: Dict[str, Any]
+    ) -> NoReturn:
+
         while True:
+            # noinspection PyBroadException
             try:
                 if self._fail:
                     raise ValueError
-                d_out[self.name] = process_chunk(
-                    self,
-                    self.format(self.read()),
-                    padding, **chunk_kwargs
+
+                d_out[self.name] = self.process_chunk(
+                    self.format(await self.read()),
+                    padding,
+                    **chunk_kwargs,
                 )
-            except Exception:
+
+            except:
+
                 if self._fail:
-                    fail_str = colorify(self._fail, BROWN)
+                    fail_str = color(self._fail, BROWN)
                 else:
-                    fail_str = colorify(f'unit "{self.name}" failed', BROWN)
+                    fail_str = color(f'unit "{self.name}" failed', BROWN)
+
                 trc.print_exc(file=stderr)
-                d_out[self.name] = process_chunk(
-                    self, fail_str, padding,
-                    **chunk_kwargs
+
+                d_out[self.name] = self.process_chunk(
+                    fail_str, padding, **chunk_kwargs
                 )
 
-            await aio.sleep(self.poll_interval)
-
-    @property
-    @abstractmethod
-    def api(self) -> Dict[str, Tuple[type, str]]:
-        """
-        Get a dictionary mapping read output keys to their types and
-        descriptions.
-        """
+            finally:
+                await aio.sleep(self.poll_interval)
+                continue
 
     @abstractmethod
-    def read(self) -> Dict[str, Any]:
+    async def read(self) -> Dict[str, Any]:
         """
         Get the unit's output as a dictionary, in line with its API.
         """
@@ -359,55 +377,75 @@ class PY9Unit:
 
         See i3 documentation and example code for click's members
         """
-        self.transient_overrides.update({'border': RED})
+        self.transient_overrides.update({"border": RED})
 
 
-def mk_tcolor_str(temp):
+def mk_tcolor_str(temp: Union[int, float]) -> str:
     if temp < 100:
-        tcolor_str = colorify('{:3.0f}'.format(temp),
-                              get_color(temp, breakpoints=[30, 50, 70, 90]))
+        out = color(
+            "{:3.0f}".format(temp),
+            get_color(temp, breakpoints=(30, 50, 70, 90)),
+        )
     else:  # we're on fire
-        tcolor_str = pangofy('{:3.0f}'.format(temp),
-                             color='#FFFFFF', background='#FF0000')
+        out = pangofy(
+            "{:3.0f}".format(temp), color="#FFFFFF", background="#FF0000"
+        )
 
-    return tcolor_str
+    return out
 
 
-def get_color(v, breakpoints=None,
-              colors=(BLUE, GREEN, YELLOW, ORANGE, RED), rev=False):
+def get_color(
+    value: Union[float, int],
+    breakpoints: Tuple[Real, ...] = (20, 40, 60, 80),
+    colors: Tuple[str, ...] = (BLUE, GREEN, YELLOW, ORANGE, RED),
+    do_reverse=False,
+) -> str:
     """
-    Chooses appropriate conditional-color for colorify function.
+    Chooses appropriate conditional-color for color function.
 
     Maps an integer and an increasing list of midpoints to a colour in the
     `colors` array based on the integer's index in the list of midpoints.
     """
-    if breakpoints is None:
-        breakpoints = [20, 40, 60, 80]
-    if rev:
+
+    assert len(colors) - len(breakpoints) == 1
+
+    if do_reverse:
         colors = list(reversed(colors))
-    return colors[bisect.bisect(breakpoints, v)]
+
+    return colors[bisect.bisect(list(breakpoints), value)]
 
 
-def pangofy(s, **kwargs):
+def pangofy(s: str, **kwargs) -> str:
     """
-    applies kwargs to s, pango style, returning a span string
+    applies kwargs to s, pango style, returning a <span> element
     """
-    a = '<span ' + ' '.join(["{}='{}'".format(k, v) for k, v in kwargs.items()
-                                if v is not None]) + '>'
-    b = '</span>'
+
+    a = (
+        "<span "
+        + " ".join(
+            ["{}='{}'".format(k, v) for k, v in kwargs.items() if v is not None]
+        )
+        + ">"
+    )
+    b = "</span>"
+
     return a + s + b
 
 
-def colorify(s, color):
+def color(s: str, color: str) -> str:
     return pangofy(s, color=color)
 
 
-def colorize_float(val, length, prec, breakpoints):
-    return colorify(
-        f'{val:{length}.{prec}f}', get_color(val, breakpoints=breakpoints))
+def colorize_float(
+    val: float, length: int, prec: int, breakpoints: Tuple[Real, ...]
+):
+    return color(
+        f"{val:{length}.{prec}f}", get_color(val, breakpoints=breakpoints)
+    )
 
 
-def format_duration(val: Union[timedelta, float]) -> str:
+@lru_cache(maxsize=1024)
+def format_duration(val: Union[timedelta, Real]) -> str:
     """
     Formats a duration in seconds in a human-readable way.
 
@@ -419,60 +457,65 @@ def format_duration(val: Union[timedelta, float]) -> str:
 
     if val < 60:
         if val < 1e-9:
-            unit = 'ps'
-            disp_val = val * 1e12
+            unit = "ps"
+            display_val = val * 1e12
         elif val < 1e-6:
-            unit = 'ns'
-            disp_val = val * 1e9
+            unit = "ns"
+            display_val = val * 1e9
         elif val < 1e-3:
-            unit = 'us'
-            disp_val = val * 1e6
+            unit = "us"
+            display_val = val * 1e6
         elif val < 1.0:
-            unit = 'ms'
-            disp_val = val * 1e3
+            unit = "ms"
+            display_val = val * 1e3
+        else:
+            unit = "s"
+            display_val = val
 
-        prec = max(0, 2 - floor(log10(disp_val)))
+        precision = max(0, 2 - floor(log10(display_val)))
 
-        return f'  {disp_val: >3.{prec}f} {unit} '
+        return f"  {display_val: >3.{precision}f} {unit} "
 
     # val (- [minute, four weeks)
     elif 60 <= val < 3155760000:
         if val < 3600:
             fst, snd_s = divmod(val, 60)
             snd = int(snd_s)
-            ufst, usnd = 'm', 's'
+            first_unit, second_unit = "m", "s"
         elif val < 86400:
             fst, snd_s = divmod(val, 3600)
             snd = int(snd_s / 60)
-            ufst, usnd = 'h', 'm'
+            first_unit, second_unit = "h", "m"
         elif val < 604800:
             fst, snd_s = divmod(val, 86400)
             snd = int(snd_s / 3600)
-            ufst, usnd = 'd', 'h'
+            first_unit, second_unit = "d", "h"
         elif val < 31557600:
             fst, snd_s = divmod(val, 604800)
             snd = int(snd_s / 86400)
-            ufst, usnd = 'w', 'd'
+            first_unit, second_unit = "w", "d"
         else:
             fst, snd_s = divmod(val, 31557600)
             snd = int(snd_s / 604800)
-            ufst, usnd = 'y', 'w'
+            first_unit, second_unit = "y", "w"
 
-        return f'{int(fst): >2d} {ufst} {snd: >2d} {usnd}'
+        return f"{int(fst): >2d} {first_unit} {snd: >2d} {second_unit}"
 
-    # XXX expand unto aeons
     else:
-        return ' > 10 y  '
+        return " > 10 y  "
 
 
-def maybe_int(x):
+def maybe_int(x: T) -> Union[T, int]:
+    """
+    Converts a value to an int if possible, else returns the input unchanged.
+    """
     try:
         return int(x)
     except ValueError:
         return x
 
 
-def med_mad(xs):
+def med_mad(xs: Iterable[N]) -> Tuple[N, N]:
     """
     Returns the median and median absolute deviation of the passed iterable.
     """
