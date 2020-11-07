@@ -1,2 +1,0 @@
-setuptools~=50.3.0
-fastcache~=1.1.0
