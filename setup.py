@@ -1,8 +1,7 @@
 from setuptools import find_packages, setup
 
-
 # semver with automatic minor bumps keyed to unix time
-__version__ = "2.1.1604711230"
+__version__ = "2.1.1604763554"
 
 
 setup(

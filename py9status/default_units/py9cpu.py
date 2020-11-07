@@ -29,15 +29,33 @@ class PY9CPU(PY9Unit):
         self.q_len = int(2 / self.poll_interval)
 
         self._usage: dq_t[complex] = deque([], maxlen=self.q_len)
-        self._temps: dq_t[int] = deque([], maxlen=self.q_len)
+        self._usage_tot: complex = 0.0
 
-        self._use_mean: complex = 0.0
-        self._tmean: float = 0.0
+        self._times: dq_t[float] = deque([], maxlen=self.q_len)
+        self._time_tot: float = 0.0
+
+        self._temps: dq_t[float] = deque([], maxlen=self.q_len)
+        self._temp_tot: float = 0.0
 
     def _read_cpu_times(self) -> Tuple[int, int, int]:
         self.stat_file.seek(0)
         comps = [int(x) for x in self.stat_file.readline().split(" ")[1:] if x]
         return sum(comps), comps[0] + comps[1], comps[2]
+
+    def _read_temp(self) -> float:
+
+        temp: float = 0.0
+        n_cores = 0
+
+        for fn in glob("/sys/class/thermal/thermal_zone*/temp"):
+            with open(fn, "r") as f:
+                try:
+                    temp += float(f.read()) / 1000
+                    n_cores += 1
+                except ValueError:
+                    continue
+
+        return temp / n_cores
 
     async def read(self) -> DSA:
         """
@@ -49,41 +67,45 @@ class PY9CPU(PY9Unit):
             "err_no_temp": (bool, "Temperature could not be read."),
 
         """
+        out = {}
+
         tt, tu, tk = self._read_cpu_times()
         dtt = tt - self.tt0
         dtu = tu - self.tu0
         dtk = tk - self.tk0
         self.tt0, self.tu0, self.tk0 = tt, tu, tk
 
+        usage = dtu + dtk * 1j
+
+        self._time_tot += dtt
         # kernel = imaginary; user = real
-        new: complex = (dtu + dtk * 1j) / dtt
+        self._usage_tot += usage
 
-        cur_len = max(1, len(self._usage))
-        last = self._usage[0] if cur_len == self.q_len else 0
-
-        self._use_mean += (new - last) / cur_len
-        self._usage.append(new)
-
-        out = {"p_k": self._use_mean.imag, "p_u": self._use_mean.real}
-
-        temp: Optional[float] = 0.0
-        n_cores = 0
-
-        for fn in glob("/sys/class/thermal/thermal_zone*/temp"):
-            with open(fn, "r") as f:
-                try:
-                    temp += float(f.read()) / 1000
-                    n_cores += 1
-                except ValueError:
-                    temp = None  # type: ignore
-
-        if n_cores > 0 and temp is not None:
-            temp /= n_cores
-            self._temps.append(temp)
-            out["temp_C"] = mean(self._temps)
-        else:
-            self._temps.clear()
+        try:
+            temp = self._read_temp()
+            self._temp_tot += temp
+        except ZeroDivisionError:
             out["err_no_temp"] = True
+            temp = None
+
+        # before append!
+        if len(self._usage) == self.q_len:
+            self._time_tot -= self._times[0]
+            self._usage_tot -= self._usage[0]
+            self._temp_tot -= self._temps[0]
+
+        self._usage.append(usage)
+        self._times.append(dtt)
+
+        if temp is not None:
+            self._temps.append(temp)
+
+        use_mean = self._usage_tot / self._time_tot
+        temp_mean = self._temp_tot / len(self._temps)
+
+        out["p_k"] = use_mean.imag
+        out["p_u"] = use_mean.real
+        out["temp_C"] = temp_mean
 
         return out
 
