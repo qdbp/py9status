@@ -31,6 +31,7 @@ def main() -> NoReturn:
         # PY9Wireless("wlan_id", ival=5.),
         # PY9Bat(ival=5.),
         PY9Time(ival=0.7),
+        PY9Wireless("wlan0"),
     ]
 
     py9s = PY9Status(units)

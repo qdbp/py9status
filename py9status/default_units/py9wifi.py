@@ -17,40 +17,46 @@ class PY9Wireless(PY9Unit):
         """
 
         self.wlan_if = wlan_if
-        super().__init__(*args, requires=["iwconfig"], **kwargs)
+        super().__init__(*args, requires=["iw"], **kwargs)
 
     async def read(self) -> DSA:
         """
         Returns: dict:
             "ssid": (str, "SSID of the connected network."),
             "quality": (float, "Connection quality, from 0 to 1."),
+                This is defined as the fraction of the way from -80 dBm to
+                -30 dBm.
             "err_down": (bool, "True if the wireless interface is down."),
             "err_disconnected": (
                 bool,
                 "True if there is no network connection.",
 
         """
-        # Future: read stats from /proc/net/wireless?
         # Raw
-        out = sbp.check_output(["iwconfig", self.wlan_if]).decode("ascii")
-        # line1 = out.split('\n')[0]
+        info = sbp.check_output(["iw", "dev", self.wlan_if, "info"]).decode(
+            "ascii"
+        )
+        station = sbp.check_output(
+            ["iw", "dev", self.wlan_if, "station", "dump"]
+        ).decode('ascii')
 
         # Status
         # No device detected case
-        if "No such device" in out:  # if not connected: 'No such device'
+        if "No such device" in info:  # if not connected: 'No such device'
             return {"err_down": True}
         # Not connected case
 
-        if "off/any" in out:  # if not connected: 'ESSID:off/any'
+        if not station.strip():  # if not connected: 'ESSID:off/any'
             return {"err_disconnected": True}
 
         # Raw output data
-        raw_ssid = findall('ESSID:"(.*?)"', out)[0]
+        raw_ssid = findall(r"\n\s*ssid ([^\n]+)", info)[0]
+        power = float(findall(r"\n\s*signal:\s*(-\d+)", station)[0])
 
-        n, d = findall(r"Link Quality=(\d+)/(\d+)", out)[0]
-        quality = float(n) / float(d)
-
-        return {"ssid": raw_ssid, "quality": quality}
+        return {
+            "ssid": raw_ssid,
+            "quality": min(1.0, max(0.0, (power + 80) / 50)),
+        }
 
     def format(self, output: DSA) -> str:
         prefix = "wlan {} [".format(self.wlan_if)
