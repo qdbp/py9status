@@ -26,9 +26,13 @@ class PY9CPU(PY9Unit):
         # to make sure that cpuinfo is updated at least once on read
         time.sleep(0.01)
 
-        self._us: dq_t[float] = deque([], maxlen=int(2 / self.poll_interval))
-        self._ks: dq_t[float] = deque([], maxlen=int(2 / self.poll_interval))
-        self._temps: dq_t[int] = deque([], maxlen=int(2 / self.poll_interval))
+        self.q_len = int(2 / self.poll_interval)
+
+        self._usage: dq_t[complex] = deque([], maxlen=self.q_len)
+        self._temps: dq_t[int] = deque([], maxlen=self.q_len)
+
+        self._use_mean: complex = 0.0
+        self._tmean: float = 0.0
 
     def _read_cpu_times(self) -> Tuple[int, int, int]:
         self.stat_file.seek(0)
@@ -51,10 +55,16 @@ class PY9CPU(PY9Unit):
         dtk = tk - self.tk0
         self.tt0, self.tu0, self.tk0 = tt, tu, tk
 
-        self._us.append(dtu / dtt)
-        self._ks.append(dtk / dtt)
+        # kernel = imaginary; user = real
+        new: complex = (dtu + dtk * 1j) / dtt
 
-        out = {"p_k": mean(self._ks), "p_u": mean(self._us)}
+        cur_len = len(self._usage)
+        last = self._usage[0] if cur_len == self.q_len else 0
+
+        self._use_mean += (new - last) / cur_len
+        self._usage.append(new)
+
+        out = {"p_k": self._use_mean.imag, "p_u": self._use_mean.real}
 
         temp: Optional[float] = 0.0
         n_cores = 0

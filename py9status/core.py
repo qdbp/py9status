@@ -9,6 +9,7 @@ import traceback as trc
 from abc import abstractmethod
 from collections import Counter
 from datetime import timedelta
+from functools import lru_cache
 from math import floor, log10
 from numbers import Real
 from shutil import which
@@ -26,8 +27,6 @@ from typing import (
     TypeVar,
     Union,
 )
-
-from fastcache import lru_cache
 
 T = TypeVar("T")
 N = TypeVar("N", int, float)
