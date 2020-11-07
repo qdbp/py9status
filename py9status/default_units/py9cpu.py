@@ -58,7 +58,7 @@ class PY9CPU(PY9Unit):
         # kernel = imaginary; user = real
         new: complex = (dtu + dtk * 1j) / dtt
 
-        cur_len = len(self._usage)
+        cur_len = max(1, len(self._usage))
         last = self._usage[0] if cur_len == self.q_len else 0
 
         self._use_mean += (new - last) / cur_len

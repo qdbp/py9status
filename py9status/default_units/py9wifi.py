@@ -1,5 +1,6 @@
 import subprocess as sbp
 from re import findall
+from typing import Any, Dict
 
 from py9status.core import PY9Unit, RED, VIOLET, color, get_color
 from py9status.default_units import DSA
@@ -16,6 +17,7 @@ class PY9Wireless(PY9Unit):
             wlan_if: name of the wireless interface to monitor.
         """
 
+        self.show_ssid = True
         self.wlan_if = wlan_if
         super().__init__(*args, requires=["iw"], **kwargs)
 
@@ -38,7 +40,7 @@ class PY9Wireless(PY9Unit):
         )
         station = sbp.check_output(
             ["iw", "dev", self.wlan_if, "station", "dump"]
-        ).decode('ascii')
+        ).decode("ascii")
 
         # Status
         # No device detected case
@@ -61,13 +63,22 @@ class PY9Wireless(PY9Unit):
     def format(self, output: DSA) -> str:
         prefix = "wlan {} [".format(self.wlan_if)
         suffix = "]"
+
         if output.pop("err_down", False):
             return prefix + color("down", RED) + suffix
+
         elif output.pop("err_disconnected", False):
             return prefix + color("---", VIOLET) + suffix
-        else:
-            template = prefix + "{}] [{}%" + suffix
-            quality = 100 * output["quality"]
-            q_color = get_color(quality, do_reverse=True)
-            q_str = color("{:3.0f}".format(quality), q_color)
-            return template.format(output["ssid"], q_str)
+
+        template = prefix + "{}] [{}%" + suffix
+        quality = 100 * output["quality"]
+        q_color = get_color(quality, do_reverse=True)
+        q_str = color("{:3.0f}".format(quality), q_color)
+
+        return template.format(
+            output["ssid"] if self.show_ssid else "<>", q_str
+        )
+
+    def handle_click(self, click: Dict[str, Any]) -> None:
+
+        self.show_ssid ^= True
