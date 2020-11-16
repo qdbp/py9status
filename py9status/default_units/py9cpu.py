@@ -1,11 +1,14 @@
+import re
 import time
 from atexit import register as atexit_register
 from collections import deque
 from glob import glob
-from statistics import mean
-from typing import Deque as dq_t, Optional, Tuple
+from shutil import which
+from subprocess import check_output
 
-from py9status.core import ORANGE, PY9Unit, color, get_color, mk_tcolor_str
+from typing import Deque as dq_t, Tuple
+
+from py9status.core import ORANGE, PY9Unit, RED, color, get_color, mk_tcolor_str
 from py9status.default_units import DSA
 
 
@@ -14,8 +17,24 @@ class PY9CPU(PY9Unit):
     Monitors CPU usage and temperature.
     """
 
+    AMD_RYZEN_PAT1 = re.compile(r"Tccd1:\s+\+([0-9]{2}\.[0-9])", re.MULTILINE)
+    AMD_RYZEN_PAT2 = re.compile(r"Tccd2:\s+\+([0-9]{2}\.[0-9])", re.MULTILINE)
+
+    @staticmethod
+    def get_cpuinfo():
+        with open("/proc/cpuinfo") as f:
+            raw = f.read()
+
+        return re.findall(r"^model name:\s+(.*)$", raw, re.MULTILINE)
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+
+        self.is_intel = "Intel" in self.get_cpuinfo()
+        if not self.is_intel and which("sensors") is None:
+            self.no_temps = True
+        else:
+            self.no_temps = False
 
         self.stat_file = open("/proc/stat", "r")
         atexit_register(self.stat_file.close)
@@ -43,6 +62,18 @@ class PY9CPU(PY9Unit):
         return sum(comps), comps[0] + comps[1], comps[2]
 
     def _read_temp(self) -> float:
+        if self.is_intel:
+            return self._read_temp_intel()
+        else:
+            return self._read_temp_amd()
+
+    def _read_temp_amd(self) -> float:
+        sensors_raw = check_output("sensors").decode("utf-8")
+        t1 = float(self.AMD_RYZEN_PAT1.findall(sensors_raw)[0])
+        t2 = float(self.AMD_RYZEN_PAT1.findall(sensors_raw)[0])
+        return (t1 + t2) / 2
+
+    def _read_temp_intel(self) -> float:
 
         temp: float = 0.0
         n_cores = 0
@@ -64,7 +95,9 @@ class PY9CPU(PY9Unit):
             "p_u": (float, "Fraction of cpu time used by userland."),
             "p_k": (float, "Fraction of cpu time used by kernel."),
             "temp_C": (float, "Average cpu temperature."),
+            "err_loading": (bool, "The readings are loading."),
             "err_no_temp": (bool, "Temperature could not be read."),
+            "err_no_sensors": (bool, "Needs lm_sensors for this CPU."),
 
         """
         out = {}
@@ -81,17 +114,23 @@ class PY9CPU(PY9Unit):
         # kernel = imaginary; user = real
         self._usage_tot += usage
 
-        try:
-            temp = self._read_temp()
-            self._temp_tot += temp
-        except ZeroDivisionError:
-            out["err_no_temp"] = True
+        if self.no_temps:
+            out["err_no_sensors"] = True
             temp = None
+        else:
+            try:
+                temp = self._read_temp()
+                self._temp_tot += temp
+            except ZeroDivisionError:
+                out["err_no_temp"] = True
+                temp = None
 
         # before append!
         if len(self._usage) == self.q_len:
             self._time_tot -= self._times[0]
             self._usage_tot -= self._usage[0]
+
+        if len(self._temps) == self.q_len:
             self._temp_tot -= self._temps[0]
 
         self._usage.append(usage)
@@ -101,11 +140,13 @@ class PY9CPU(PY9Unit):
             self._temps.append(temp)
 
         use_mean = self._usage_tot / self._time_tot
-        temp_mean = self._temp_tot / len(self._temps)
-
         out["p_k"] = use_mean.imag
         out["p_u"] = use_mean.real
-        out["temp_C"] = temp_mean
+
+        if self._temps:
+            out["temp_C"] = self._temp_tot / len(self._temps)
+        else:
+            out["err_no_temp"] = True
 
         return out
 
@@ -114,12 +155,15 @@ class PY9CPU(PY9Unit):
         pk = output["p_k"] * 100
 
         no_temp = output.pop("err_no_temp", False)
+        no_sensors = output.pop("err_no_sensors", False)
 
-        if no_temp:
-            color_str = color("unk", ORANGE)
+        if no_sensors:
+            temp_str = color("no sensors", RED)
+        elif no_temp:
+            temp_str = color("unk", ORANGE)
         else:
             temp = output["temp_C"]
-            color_str = mk_tcolor_str(temp)
+            temp_str = f"{mk_tcolor_str(temp)} C"
 
         if self.show_breakdown:
             load_str = (
@@ -132,7 +176,7 @@ class PY9CPU(PY9Unit):
         else:
             load_str = "load " + color(f"{pu + pk:3.0f}%", get_color(pu + pk))
 
-        return "cpu [" + load_str + "] [temp " + color_str + "C]"
+        return f"cpu [{load_str}] [temp {temp_str}]"
 
     def handle_click(self, *args) -> None:
         self.show_breakdown ^= True
