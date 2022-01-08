@@ -1,8 +1,8 @@
 import subprocess as sbp
 from re import findall
-from typing import Any, Dict
+from typing import Any
 
-from py9status.core import PY9Unit, RED, VIOLET, color, get_color
+from py9status.core import RED, VIOLET, PY9Unit, color, get_color
 from py9status.default_units import DSA
 
 
@@ -79,6 +79,6 @@ class PY9Wireless(PY9Unit):
             output["ssid"] if self.show_ssid else "<>", q_str
         )
 
-    def handle_click(self, click: Dict[str, Any]) -> None:
+    def handle_click(self, click: dict[str, Any]) -> None:
 
         self.show_ssid ^= True

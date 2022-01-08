@@ -7,6 +7,7 @@ import json
 import time
 import traceback as trc
 from abc import abstractmethod
+from asyncio import FIRST_COMPLETED
 from collections import Counter
 from datetime import timedelta
 from functools import lru_cache
@@ -15,18 +16,9 @@ from numbers import Real
 from shutil import which
 from statistics import median
 from sys import stderr, stdin, stdout
-from typing import (
-    Any,
-    Counter as Ctr_t,
-    Dict,
-    Iterable,
-    NoReturn,
-    Optional,
-    Set,
-    Tuple,
-    TypeVar,
-    Union,
-)
+from typing import Any
+from typing import Counter as Ctr_t
+from typing import Iterable, NoReturn, Optional, TypeVar, final
 
 T = TypeVar("T")
 N = TypeVar("N", int, float)
@@ -58,8 +50,6 @@ CHUNK_DEFAULTS = {
     "separator_block_width": 0,
 }
 
-LOOP = aio.get_event_loop()
-
 
 class PY9Status:
     """
@@ -90,7 +80,7 @@ class PY9Status:
         """
 
         self.fail = ""
-        names: Set[str] = set()
+        names: set[str] = set()
 
         for u in units:
             if u.name not in names:
@@ -111,7 +101,7 @@ class PY9Status:
         self.units_by_name = {u.name: u for u in units}
 
         if chunk_kwargs is None:
-            self.chunk_kwargs: Dict[str, Any] = {}
+            self.chunk_kwargs: dict[str, Any] = {}
         else:
             assert isinstance(chunk_kwargs, dict)
             self.chunk_kwargs = chunk_kwargs
@@ -143,7 +133,7 @@ class PY9Status:
         rt = aio.StreamReader()
         rp = aio.StreamReaderProtocol(rt)
 
-        await LOOP.connect_read_pipe(lambda: rp, stdin)
+        await aio.get_event_loop().connect_read_pipe(lambda: rp, stdin)
 
         # we can get by without a json parser for this stream, carefully...
         # "burn" the opening [\n or ,\n
@@ -153,7 +143,8 @@ class PY9Status:
             try:
                 raw = await rt.readuntil(b"}")
                 click = json.loads(raw)
-                self.units_by_name[click.pop("name")].handle_click(click)
+                # noinspection PyProtectedMember
+                self.units_by_name[click.pop("name")]._handle_click(click)
                 # burn the comma
                 await rt.readuntil(b",")
             finally:
@@ -180,17 +171,16 @@ class PY9Status:
             while True:
                 time.sleep(1e9)
 
-        aio.ensure_future(self.read_clicks(), loop=LOOP)
+        aio.get_event_loop().create_task(self.read_clicks())
         for unit in self.units:
-            aio.ensure_future(
+            aio.get_event_loop().create_task(
                 unit.main_loop(
                     self.unit_outputs, self.padding, self.chunk_kwargs
                 ),
-                loop=LOOP,
             )
-        aio.ensure_future(self.line_writer())
+        aio.get_event_loop().create_task(self.line_writer())
 
-        LOOP.run_forever()
+        aio.get_event_loop().run_forever()
 
 
 class PY9Unit:
@@ -257,8 +247,8 @@ class PY9Unit:
         if kwargs:
             raise ValueError(f"Got unknown arguments {kwargs.keys()}!")
 
-        self.transient_overrides: Dict[str, str] = {}
-        self.permanent_overrides: Dict[str, str] = {}
+        self.transient_overrides: dict[str, str] = {}
+        self.permanent_overrides: dict[str, str] = {}
 
         if requires is not None:
             for req in requires:
@@ -269,6 +259,9 @@ class PY9Unit:
                     break
 
         self._fail: Optional[str] = None
+
+        # used to prod the main loop awake on user click
+        self._wakeup = aio.Event()
 
     def process_chunk(self, chunk: Optional[str], pad: int, **kwargs):
         # TODO: short_text support
@@ -321,7 +314,7 @@ class PY9Unit:
         return json.dumps(out)
 
     async def main_loop(
-        self, d_out: Dict[str, str], padding: int, chunk_kwargs: Dict[str, Any]
+        self, d_out: dict[str, str], padding: int, chunk_kwargs: dict[str, Any]
     ) -> NoReturn:
 
         while True:
@@ -350,17 +343,20 @@ class PY9Unit:
                 )
 
             finally:
-                await aio.sleep(self.poll_interval)
-                continue
+                await aio.wait(
+                    [aio.sleep(self.poll_interval), self._wakeup.wait()],
+                    return_when=FIRST_COMPLETED,
+                )
+                self._wakeup.clear()
 
     @abstractmethod
-    async def read(self) -> Dict[str, Any]:
+    async def read(self) -> dict[str, Any]:
         """
         Get the unit's output as a dictionary, in line with its API.
         """
 
     @abstractmethod
-    def format(self, read_output: Dict[str, Any]) -> str:
+    def format(self, read_output: dict[str, Any]) -> str:
         """
         Format the unit's `read` output, returning a string.
 
@@ -370,7 +366,12 @@ class PY9Unit:
         The string may optionally use pango formatting.
         """
 
-    def handle_click(self, click: Dict[str, Any]) -> None:
+    @final
+    def _handle_click(self, click: dict[str, Any]):
+        self.handle_click(click)
+        self._wakeup.set()
+
+    def handle_click(self, click: dict[str, Any]) -> None:
         """
         Handle the i3-generated `click`, passed as a dictionary.
 
@@ -379,7 +380,7 @@ class PY9Unit:
         self.transient_overrides.update({"border": RED})
 
 
-def mk_tcolor_str(temp: Union[int, float]) -> str:
+def mk_tcolor_str(temp: int | float) -> str:
     if temp < 100:
         out = color(
             "{:3.0f}".format(temp),
@@ -394,9 +395,9 @@ def mk_tcolor_str(temp: Union[int, float]) -> str:
 
 
 def get_color(
-    value: Union[float, int],
-    breakpoints: Tuple[Real, ...] = (20, 40, 60, 80),
-    colors: Tuple[str, ...] = (BLUE, GREEN, YELLOW, ORANGE, RED),
+    value: float | int,
+    breakpoints: tuple[Real, ...] = (20, 40, 60, 80),
+    colors: tuple[str, ...] = (BLUE, GREEN, YELLOW, ORANGE, RED),
     do_reverse=False,
 ) -> str:
     """
@@ -436,7 +437,7 @@ def color(s: str, color: str) -> str:
 
 
 def colorize_float(
-    val: float, length: int, prec: int, breakpoints: Tuple[Real, ...]
+    val: float, length: int, prec: int, breakpoints: tuple[Real, ...]
 ):
     return color(
         f"{val:{length}.{prec}f}", get_color(val, breakpoints=breakpoints)
@@ -444,7 +445,7 @@ def colorize_float(
 
 
 @lru_cache(maxsize=1024)
-def format_duration(val: Union[timedelta, Real]) -> str:
+def format_duration(val: timedelta | Real) -> str:
     """
     Formats a duration in seconds in a human-readable way.
 
@@ -504,7 +505,7 @@ def format_duration(val: Union[timedelta, Real]) -> str:
         return " > 10 y  "
 
 
-def maybe_int(x: T) -> Union[T, int]:
+def maybe_int(x: T) -> T | int:
     """
     Converts a value to an int if possible, else returns the input unchanged.
     """
@@ -514,7 +515,7 @@ def maybe_int(x: T) -> Union[T, int]:
         return x
 
 
-def med_mad(xs: Iterable[N]) -> Tuple[N, N]:
+def med_mad(xs: Iterable[N]) -> tuple[N, N]:
     """
     Returns the median and median absolute deviation of the passed iterable.
     """
