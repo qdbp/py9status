@@ -52,7 +52,7 @@ class PY9Wireless(PY9Unit):
             return {"err_disconnected": True}
 
         # Raw output data
-        raw_ssid = findall(r"\n\s*ssid ([^\n]+)", info)[0]
+        raw_ssid = findall(r"Interface ([^\n]+)", info)[0]
         power = float(findall(r"\n\s*signal:\s*(-\d+)", station)[0])
 
         return {
