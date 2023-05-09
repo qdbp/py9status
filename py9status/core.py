@@ -129,7 +129,6 @@ class PY9Status:
         stdout.flush()
 
     async def read_clicks(self) -> NoReturn:
-
         rt = aio.StreamReader()
         rp = aio.StreamReaderProtocol(rt)
 
@@ -316,7 +315,6 @@ class PY9Unit:
     async def main_loop(
         self, d_out: dict[str, str], padding: int, chunk_kwargs: dict[str, Any]
     ) -> NoReturn:
-
         while True:
             # noinspection PyBroadException
             try:
@@ -330,7 +328,6 @@ class PY9Unit:
                 )
 
             except:
-
                 if self._fail:
                     fail_str = color(self._fail, BROWN)
                 else:
@@ -344,7 +341,13 @@ class PY9Unit:
 
             finally:
                 await aio.wait(
-                    [aio.sleep(self.poll_interval), self._wakeup.wait()],
+                    [
+                        aio.create_task(it)
+                        for it in (
+                            aio.sleep(self.poll_interval),
+                            self._wakeup.wait(),
+                        )
+                    ],
                     return_when=FIRST_COMPLETED,
                 )
                 self._wakeup.clear()
