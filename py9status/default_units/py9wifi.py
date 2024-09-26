@@ -35,7 +35,7 @@ class PY9Wireless(PY9Unit):
 
         """
         # Raw
-        info = sbp.check_output(["iw", "dev", self.wlan_if, "info"]).decode(
+        link = sbp.check_output(["iw", "dev", self.wlan_if, "link"]).decode(
             "ascii"
         )
         station = sbp.check_output(
@@ -44,7 +44,7 @@ class PY9Wireless(PY9Unit):
 
         # Status
         # No device detected case
-        if "No such device" in info:  # if not connected: 'No such device'
+        if "No such device" in link:  # if not connected: 'No such device'
             return {"err_down": True}
         # Not connected case
 
@@ -52,7 +52,7 @@ class PY9Wireless(PY9Unit):
             return {"err_disconnected": True}
 
         # Raw output data
-        raw_ssid = findall(r"\n\s*ssid ([^\n]+)", info)[0]
+        raw_ssid = findall(r"SSID: ([^\n]+)", link)[0]
         power = float(findall(r"\n\s*signal:\s*(-\d+)", station)[0])
 
         return {
