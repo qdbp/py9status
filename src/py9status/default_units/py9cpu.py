@@ -3,6 +3,7 @@ import time
 from atexit import register as atexit_register
 from collections import deque
 from glob import glob
+from pathlib import Path
 from shutil import which
 from subprocess import check_output
 
@@ -31,6 +32,7 @@ class PY9CPU(PY9Unit):
         super().__init__(*args, **kwargs)
 
         self.is_intel = "Intel" in self.get_cpuinfo()
+        self._has_thermal_zone = Path("/sys/class/thermal/thermal_zone0").exists()
         if not self.is_intel and which("sensors") is None:
             self.no_temps = True
         else:
@@ -62,8 +64,10 @@ class PY9CPU(PY9Unit):
         return sum(comps), comps[0] + comps[1], comps[2]
 
     def _read_temp(self) -> float:
-        if self.is_intel:
-            return self._read_temp_intel()
+        if self._has_thermal_zone:
+            return self._read_temp_thermal_zone()
+        elif self.is_intel:
+            return self._read_temp_thermal_zone()
         else:
             return self._read_temp_amd()
 
@@ -73,8 +77,7 @@ class PY9CPU(PY9Unit):
         t2 = float(self.AMD_RYZEN_PAT1.findall(sensors_raw)[0])
         return (t1 + t2) / 2
 
-    def _read_temp_intel(self) -> float:
-
+    def _read_temp_thermal_zone(self) -> float:
         temp: float = 0.0
         n_cores = 0
 

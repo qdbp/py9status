@@ -45,9 +45,7 @@ class PY9Bat(PY9Unit):
         self._clicked = False
         self._cur_status = None
 
-        self.P_hist: dq_t[float] = deque(
-            [], maxlen=int(10 / self.poll_interval)
-        )
+        self.P_hist: dq_t[float] = deque([], maxlen=int(10 / self.poll_interval))
 
         self.f_uevent = open(f"/sys/class/power_supply/BAT{bat_id}/uevent")
         atexit_register(self.f_uevent.close)
@@ -114,7 +112,7 @@ class PY9Bat(PY9Unit):
                 V = uevent["voltage_now"] / 1e6
                 Vmn = uevent["voltage_min_design"] / 1e6
 
-                I = uevent["current_now"] / 1e6
+                I = uevent["current_now"] / 1e6  # noqa: E741
                 P = I * V
 
                 # assume V(Q) is linear, V(0) = Vmin
@@ -187,7 +185,6 @@ class PY9Bat(PY9Unit):
         return out
 
     def format(self, info: DSA) -> str:
-
         e_prefix = f"bat{self.bat_id}" + " [{}]"
 
         if info.pop("err_no_bat", False):

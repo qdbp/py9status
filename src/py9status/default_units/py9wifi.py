@@ -35,9 +35,7 @@ class PY9Wireless(PY9Unit):
 
         """
         # Raw
-        info = sbp.check_output(["iw", "dev", self.wlan_if, "info"]).decode(
-            "ascii"
-        )
+        info = sbp.check_output(["iw", "dev", self.wlan_if, "info"]).decode("ascii")
         station = sbp.check_output(
             ["iw", "dev", self.wlan_if, "station", "dump"]
         ).decode("ascii")
@@ -75,10 +73,7 @@ class PY9Wireless(PY9Unit):
         q_color = get_color(quality, do_reverse=True)
         q_str = color("{:3.0f}".format(quality), q_color)
 
-        return template.format(
-            output["ssid"] if self.show_ssid else "<>", q_str
-        )
+        return template.format(output["ssid"] if self.show_ssid else "<>", q_str)
 
     def handle_click(self, click: Dict[str, Any]) -> None:
-
         self.show_ssid ^= True

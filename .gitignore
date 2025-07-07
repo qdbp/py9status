@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 **/tags
 **/.mypy_cache
+.ruff_cache
+.venv
 
 # C extensions
 *.so

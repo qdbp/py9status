@@ -2,7 +2,10 @@
 from typing import NoReturn
 
 from py9status.core import PY9Status
-from py9status.default_units import *
+from py9status.default_units.py9cpu import PY9CPU
+from py9status.default_units.py9mem import PY9Mem
+from py9status.default_units.py9time import PY9Time
+from py9status.default_units.py9wifi import PY9Wireless
 
 
 # you can write your own units! it's recommended to use a separate
@@ -31,7 +34,7 @@ def main() -> NoReturn:
         # PY9Wireless("wlan_id", ival=5.),
         # PY9Bat(ival=5.),
         PY9Time(ival=0.7),
-        # PY9Wireless("wlan0"),
+        PY9Wireless("wlan0"),
     ]
 
     py9s = PY9Status(units)

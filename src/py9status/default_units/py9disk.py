@@ -87,7 +87,6 @@ class PY9Disk(PY9Unit):
         return {"bps_read": dr / dt, "bps_write": dw / dt}
 
     def format(self, info: DSA) -> str:
-
         context = "disk [" + self.disk + " {}]"
 
         if info.pop("err_no_disk", False):

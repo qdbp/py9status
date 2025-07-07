@@ -81,8 +81,7 @@ class Pinger:
     def start(self) -> None:
         if self._ping_last_response is not None:
             raise NotImplementedError(
-                "Can't restart an old Pinger. "
-                "Instantiate a new Pinger to reset state."
+                "Can't restart an old Pinger. Instantiate a new Pinger to reset state."
             )
 
         self._ping_last_response = time.time()
@@ -108,7 +107,6 @@ class Pinger:
     def poll(
         self,
     ) -> Tuple[int, Optional[Tuple[float, float, float, float]]]:
-
         if time.time() - self._ping_last_response > self.timeout:
             return self.PING_TIMEOUT, None
 
@@ -122,10 +120,7 @@ class Pinger:
             med, mad = med_mad(self._ping_rtts)
             mx = max(self._ping_rtts)
             loss = (
-                self._ping_seqs[0]
-                - self._ping_seqs[-1]
-                - len(self._ping_seqs)
-                + 1
+                self._ping_seqs[0] - self._ping_seqs[-1] - len(self._ping_seqs) + 1
             ) / len(self._ping_seqs)
             return self.PING_HAVE_STATS, (med, mad, mx, loss)
 
@@ -135,10 +130,7 @@ class PY9Net(PY9Unit):
     Monitor bytes sent and received per unit time on a network interface.
     """
 
-    def __init__(
-        self, interface, *args, ping_server="8.8.8.8", **kwargs
-    ) -> None:
-
+    def __init__(self, interface, *args, ping_server="8.8.8.8", **kwargs) -> None:
         """
         Args:
             interface: the interface name to monitor
@@ -155,9 +147,7 @@ class PY9Net(PY9Unit):
 
         self._rx_dq: Deque[int] = deque([], maxlen=int(2 / self.poll_interval))
         self._tx_dq: Deque[int] = deque([], maxlen=int(2 / self.poll_interval))
-        self._time_dq: Deque[float] = deque(
-            [], maxlen=int(2 / self.poll_interval)
-        )
+        self._time_dq: Deque[float] = deque([], maxlen=int(2 / self.poll_interval))
 
         self.pinger = None
 
@@ -301,13 +291,10 @@ class PY9Net(PY9Unit):
             med_str = colorize_float(m, 4, 1, (10.0, 20.0, 50.0, 100.0))
             mad_str = colorize_float(std, 3, 1, (1.0, 3.0, 9.0, 27.0))
             max_str = colorize_float(mx, 3, 0, (20.0, 50.0, 100.0, 250.0))
-            loss_str = colorize_float(
-                100 * loss, 4, 1, (1e-4, 1e-1, 1e-0, 5e-0)
-            )
+            loss_str = colorize_float(100 * loss, 4, 1, (1e-4, 1e-1, 1e-0, 5e-0))
 
             return prefix + (
-                f"[med {med_str} mad {mad_str} max {max_str} ms] "
-                f"[loss {loss_str}%]"
+                f"[med {med_str} mad {mad_str} max {max_str} ms] [loss {loss_str}%]"
             )
 
     def format(self, output: DSA) -> str:

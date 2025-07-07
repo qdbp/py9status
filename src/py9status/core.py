@@ -70,9 +70,7 @@ class PY9Status:
     value
     """
 
-    def __init__(
-        self, units, min_sleep=0.1, padding=1, chunk_kwargs=None
-    ) -> None:
+    def __init__(self, units, min_sleep=0.1, padding=1, chunk_kwargs=None) -> None:
         """
         units:
             list of PY9Unit units to poll. their ordering in the list will
@@ -139,7 +137,6 @@ class PY9Status:
         stdout.flush()
 
     async def read_clicks(self) -> NoReturn:
-
         rt = aio.StreamReader()
         rp = aio.StreamReaderProtocol(rt)
 
@@ -183,9 +180,7 @@ class PY9Status:
         aio.ensure_future(self.read_clicks(), loop=LOOP)
         for unit in self.units:
             aio.ensure_future(
-                unit.main_loop(
-                    self.unit_outputs, self.padding, self.chunk_kwargs
-                ),
+                unit.main_loop(self.unit_outputs, self.padding, self.chunk_kwargs),
                 loop=LOOP,
             )
         aio.ensure_future(self.line_writer())
@@ -215,9 +210,7 @@ class PY9Unit:
 
     name_resolver: Ctr_t[str] = Counter()
 
-    def __init__(
-        self, name=None, poll_interval=0.33, requires=None, **kwargs
-    ) -> None:
+    def __init__(self, name=None, poll_interval=0.33, requires=None, **kwargs) -> None:
         """
         Args:
             name:
@@ -323,7 +316,6 @@ class PY9Unit:
     async def main_loop(
         self, d_out: Dict[str, str], padding: int, chunk_kwargs: Dict[str, Any]
     ) -> NoReturn:
-
         while True:
             # noinspection PyBroadException
             try:
@@ -336,8 +328,7 @@ class PY9Unit:
                     **chunk_kwargs,
                 )
 
-            except:
-
+            except Exception:
                 if self._fail:
                     fail_str = color(self._fail, BROWN)
                 else:
@@ -345,9 +336,7 @@ class PY9Unit:
 
                 trc.print_exc(file=stderr)
 
-                d_out[self.name] = self.process_chunk(
-                    fail_str, padding, **chunk_kwargs
-                )
+                d_out[self.name] = self.process_chunk(fail_str, padding, **chunk_kwargs)
 
             finally:
                 await aio.sleep(self.poll_interval)
@@ -386,9 +375,7 @@ def mk_tcolor_str(temp: Union[int, float]) -> str:
             get_color(temp, breakpoints=(30, 50, 70, 90)),
         )
     else:  # we're on fire
-        out = pangofy(
-            "{:3.0f}".format(temp), color="#FFFFFF", background="#FF0000"
-        )
+        out = pangofy("{:3.0f}".format(temp), color="#FFFFFF", background="#FF0000")
 
     return out
 
@@ -421,9 +408,7 @@ def pangofy(s: str, **kwargs) -> str:
 
     a = (
         "<span "
-        + " ".join(
-            ["{}='{}'".format(k, v) for k, v in kwargs.items() if v is not None]
-        )
+        + " ".join(["{}='{}'".format(k, v) for k, v in kwargs.items() if v is not None])
         + ">"
     )
     b = "</span>"
@@ -435,12 +420,8 @@ def color(s: str, color: str) -> str:
     return pangofy(s, color=color)
 
 
-def colorize_float(
-    val: float, length: int, prec: int, breakpoints: Tuple[Real, ...]
-):
-    return color(
-        f"{val:{length}.{prec}f}", get_color(val, breakpoints=breakpoints)
-    )
+def colorize_float(val: float, length: int, prec: int, breakpoints: Tuple[Real, ...]):
+    return color(f"{val:{length}.{prec}f}", get_color(val, breakpoints=breakpoints))
 
 
 @lru_cache(maxsize=1024)

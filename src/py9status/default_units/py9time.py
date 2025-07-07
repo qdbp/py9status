@@ -11,10 +11,7 @@ class PY9Time(PY9Unit):
     Displays the current time.
     """
 
-    def __init__(
-        self, *args, fmt: str = "%a %b %d %Y - %H:%M", **kwargs
-    ) -> None:
-
+    def __init__(self, *args, fmt: str = "%a %b %d %Y - %H:%M", **kwargs) -> None:
         """
         Args:
             fmt:
@@ -28,9 +25,7 @@ class PY9Time(PY9Unit):
         self._doing_uptime = False
 
         _cpu_count = cpu_count()
-        self._load_color_scale = tuple(
-            _cpu_count * x for x in [0.1, 0.25, 0.50, 0.75]
-        )
+        self._load_color_scale = tuple(_cpu_count * x for x in [0.1, 0.25, 0.50, 0.75])
 
         super().__init__(*args, **kwargs)
 
@@ -68,9 +63,7 @@ class PY9Time(PY9Unit):
         else:
             ut_s = format_duration(output["uptime"])
             lss = [
-                colorize_float(
-                    output[f"loadavg_{key}"], 3, 2, self._load_color_scale
-                )
+                colorize_float(output[f"loadavg_{key}"], 3, 2, self._load_color_scale)
                 for key in ["1", "5", "10"]
             ]
 

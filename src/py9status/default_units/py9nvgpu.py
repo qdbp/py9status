@@ -23,9 +23,7 @@ class PY9NVGPU(PY9Unit):
         super().__init__(*args, requires=["nvidia-smi"], **kwargs)
 
     async def read(self) -> DSA:
-        proc = await asbp.create_subprocess_shell(
-            "nvidia-smi", stdout=asbp.PIPE
-        )
+        proc = await asbp.create_subprocess_shell("nvidia-smi", stdout=asbp.PIPE)
         raw, _ = await proc.communicate()
         out = raw.decode("ascii")
         line = out.split("\n")[8]

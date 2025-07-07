@@ -1,15 +1,21 @@
-[tool.black]
-line-length = 80
-target-version = ['py38']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.venv
-  | venv
-  | \.pytest_cache
-  | \.github
-  | \.circleci
-  | \.circleci
-)/
-'''
+[project]
+name = "py9status"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Evgeny Naumov", email = "evgeny.naumov@pm.me" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "nvgpu>=0.10.0",
+    "psutil>=7.0.0",
+    "requests>=2.32.4",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+py9s = "py9status.run_py9s:main"
